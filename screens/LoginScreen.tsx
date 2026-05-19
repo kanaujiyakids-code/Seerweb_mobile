@@ -1,5 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
@@ -9,55 +17,80 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiUrl } from 'apiurl';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import RefreshWrapper from 'components/RefreshWrapper'; // Make sure the path is correct
+import RefreshWrapper from 'components/RefreshWrapper';
 
 export default function LoginScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-  try {
-    setErrorMessage('');
+    if (loading) return;
 
-    console.log("Calling API:", `${apiUrl}/login`);
+    try {
+      setLoading(true);
+      setErrorMessage('');
 
-    const response = await fetch(`${apiUrl}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
+      console.log('Calling API:', `${apiUrl}/login`);
 
-    console.log("Response status:", response.status);
+      const response = await fetch(`${apiUrl}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          password,
+        }),
+      });
 
-    const data = await response.json();
-    console.log("Response data:", data);
+      console.log('Response status:', response.status);
 
-    if (response.ok && data.message === 'Login successful') {
-      await AsyncStorage.setItem('token', data.token);
-      await AsyncStorage.setItem('user', JSON.stringify(data.user));
+      const data = await response.json();
 
-      if (data.user.role === 'dealer') {
-        navigation.reset({ index: 0, routes: [{ name: 'DealerDashboard' }] });
-      } else if (data.user.role === 'retailer') {
-        navigation.reset({ index: 0, routes: [{ name: 'RetailerDashboard' }] });
-      } else if (data.user.role === 'staff') {
-        navigation.reset({ index: 0, routes: [{ name: 'StaffDashboard' }] });
+      console.log('Response data:', data);
+
+      if (response.ok && data.message === 'Login successful') {
+        await AsyncStorage.setItem('token', data.token);
+        await AsyncStorage.setItem('user', JSON.stringify(data.user));
+
+        if (data.user.role === 'dealer') {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'DealerDashboard' }],
+          });
+        } else if (data.user.role === 'retailer') {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'RetailerDashboard' }],
+          });
+        } else if (data.user.role === 'staff') {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'StaffDashboard' }],
+          });
+        } else {
+          setErrorMessage('Invalid role.');
+        }
       } else {
-        setErrorMessage('Invalid role.');
+        setErrorMessage(
+          data.message || 'Invalid username or password.'
+        );
       }
-    } else {
-      setErrorMessage(data.message || 'Invalid username or password.');
+    } catch (error) {
+      console.log('Login error:', error);
+      setErrorMessage('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.log("Login error:", error);
-    setErrorMessage('Something went wrong. Please try again.');
-  }
-};
+  };
 
-  // Function to handle pull-to-refresh
+  // Pull-to-refresh reset
   const handleRefresh = async () => {
     setUsername('');
     setPassword('');
@@ -78,61 +111,100 @@ export default function LoginScreen() {
             resizeMode="cover"
           />
 
-          {/* Login Form */}
+          {/* Login Container */}
           <View className="w-full max-w-md p-6 rounded-2xl mb-32">
+            {/* Logo */}
             <Animated.Image
               entering={FadeInUp.delay(200).duration(500).springify()}
-              source={require('../assets/favicon.png')}
-              className="w-24 h-24 mt-6 mb-16 self-center"
+              source={require('../assets/icon.png')}
+              className="w-28 h-28 mt-6 mb-6 self-center"
               resizeMode="contain"
             />
 
-            {/* Username */}
-            <Animated.View entering={FadeInDown.delay(200).duration(1500).springify()} className=" rounded-2xl mb-4 bg-white">
+            {/* Username Input */}
+            <Animated.View
+              entering={FadeInDown.delay(200).duration(1500).springify()}
+              className="rounded-2xl mb-4 bg-white"
+            >
               <TextInput
                 placeholder="Username"
-                className="border rounded-2xl h-14 px-4"
+                className="border rounded-2xl h-14 px-4 text-black"
                 placeholderTextColor="rgba(0,0,0,0.4)"
                 value={username}
                 onChangeText={setUsername}
+                editable={!loading}
               />
             </Animated.View>
 
-            {/* Password */}
+            {/* Password Input */}
             <Animated.View
               entering={FadeInDown.delay(300).duration(1500).springify()}
               className="border bg-white rounded-2xl h-14 px-4 flex-row items-center"
             >
               <TextInput
                 placeholder="Password"
-                className="flex-1"
+                className="flex-1 text-black"
                 secureTextEntry={!showPassword}
                 placeholderTextColor="rgba(0,0,0,0.4)"
                 value={password}
                 onChangeText={setPassword}
+                editable={!loading}
               />
-              <Pressable onPress={() => setShowPassword(!showPassword)}>
-                <Feather name={showPassword ? 'eye-off' : 'eye'} size={20} color="#888" />
+
+              <Pressable
+                onPress={() => setShowPassword(!showPassword)}
+                disabled={loading}
+              >
+                <Feather
+                  name={showPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color="#888"
+                />
               </Pressable>
             </Animated.View>
 
             {/* Error Message */}
             {errorMessage ? (
-              <Text className="text-red-500 text-sm mt-2 ml-2">{errorMessage}</Text>
+              <Text className="text-red-500 text-sm mt-2 ml-2">
+                {errorMessage}
+              </Text>
             ) : null}
 
             {/* Login Button */}
-            <Animated.View entering={FadeInDown.delay(400).duration(1500).springify()}>
+            <Animated.View
+              entering={FadeInDown.delay(400).duration(1500).springify()}
+            >
               <Pressable
-                className="bg-[#5b74f1] rounded-2xl py-3 mt-8 h-12 justify-center"
+                disabled={loading}
                 onPress={handleLogin}
+                className={`rounded-2xl py-3 mt-8 h-14 justify-center shadow-lg ${
+                  loading ? 'bg-[#7f92f5]' : 'bg-[#5b74f1]'
+                }`}
               >
-                <Text className="text-center text-white font-semibold">Login</Text>
+                <View className="flex-row items-center justify-center">
+                  {loading ? (
+                    <>
+                      <ActivityIndicator
+                        size="small"
+                        color="#ffffff"
+                      />
+
+                      <Text className="text-white font-semibold text-base ml-3">
+                        Signing In...
+                      </Text>
+                    </>
+                  ) : (
+                    <Text className="text-center text-white font-semibold text-base">
+                      Login
+                    </Text>
+                  )}
+                </View>
               </Pressable>
             </Animated.View>
 
+            {/* Bottom Text */}
             <Animated.View
-              entering={FadeInDown.delay(400).duration(1500).springify()}
+              entering={FadeInDown.delay(500).duration(1500).springify()}
               className="mt-4 w-full items-center"
             >
               <Text className="px-4 py-2 text-center rounded-md w-[90%] text-gray-700">

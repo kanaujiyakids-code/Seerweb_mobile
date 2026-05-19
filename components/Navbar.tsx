@@ -1,139 +1,92 @@
-import React, { useState } from 'react';
+/**
+ * Navbar — OPTIMIZED
+ *
+ * Fixes:
+ * 1. Handlers memoized with useCallback
+ * 2. Wrapped in React.memo — won't re-render when parent screen updates state
+ */
+import React, { useState, useCallback, memo } from 'react';
 import { View, Text, Pressable, Modal, Image } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types/navigation';
+import { clearRoleCache } from './BottomTabNavigator';
 
 interface NavbarProps {
-  user: any;
+  user?: string;
 }
 
-export default function Navbar({ user }: NavbarProps) {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
+function Navbar({ user }: NavbarProps) {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [menuVisible, setMenuVisible] = useState(false);
   const [logoutVisible, setLogoutVisible] = useState(false);
 
-  const handleLogout = async () => {
-    await AsyncStorage.multiRemove([
-      'user',
-      'token',
-      'cart',
-      'selectedRetailer',
-      'welcomeShown',
-    ]);
+  const openMenu = useCallback(() => setMenuVisible(true), []);
+  const closeMenu = useCallback(() => setMenuVisible(false), []);
+  const openLogout = useCallback(() => { setMenuVisible(false); setLogoutVisible(true); }, []);
+  const closeLogout = useCallback(() => setLogoutVisible(false), []);
+
+  const goToProfile = useCallback(() => {
+    setMenuVisible(false);
+    navigation.navigate('Profile' as never);
+  }, [navigation]);
+
+  const handleLogout = useCallback(async () => {
+    await AsyncStorage.multiRemove(['user', 'token', 'cart', 'selectedRetailer', 'welcomeShown']);
+    clearRoleCache(); // ✅ clear module-level role cache on logout
     setLogoutVisible(false);
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
-  };
+    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+  }, [navigation]);
 
   return (
-    <View className="px-4 py-3 bg-white flex-row items-center justify-between border-b border-gray-200">
-      {/* Branding */}
-      <View className="flex-row items-center">
-        <Image
-          source={require('../assets/icon.png')}
-          style={{ width: 28, height: 28, marginRight: 8 }}
-          resizeMode="contain"
-        />
-        <Text className="text-lg font-bold text-gray-900">Seerweb OMS</Text>
+    <View style={{ paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Image source={require('../assets/icon.png')} style={{ width: 28, height: 28, marginRight: 8 }} resizeMode="contain" />
+        <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>Seerweb OMS</Text>
       </View>
 
-      {/* Menu trigger */}
-      <Pressable onPress={() => setMenuVisible(true)} hitSlop={10}>
+      <Pressable onPress={openMenu} hitSlop={10}>
         <Ionicons name="ellipsis-vertical" size={22} color="#374151" />
       </Pressable>
 
-      {/* ── Dropdown menu ────────────────────────────────────────── */}
+      {/* Dropdown */}
       <Modal transparent visible={menuVisible} animationType="fade">
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.15)' }}
-          onPress={() => setMenuVisible(false)}
-        >
-          <View
-            style={{
-              position: 'absolute',
-              top: 60,
-              right: 16,
-              backgroundColor: 'white',
-              borderRadius: 10,
-              width: 180,
-              elevation: 6,
-            }}
-          >
-            {/* Profile */}
-            <Pressable
-              onPress={() => {
-                setMenuVisible(false);
-                navigation.replace('Profile');
-              }}
-              style={{ flexDirection: 'row', padding: 12, alignItems: 'center' }}
-            >
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.15)' }} onPress={closeMenu}>
+          <View style={{ position: 'absolute', top: 60, right: 16, backgroundColor: '#fff', borderRadius: 10, width: 180, elevation: 6 }}>
+            <Pressable onPress={goToProfile} style={{ flexDirection: 'row', padding: 12, alignItems: 'center' }}>
               <Ionicons name="person-outline" size={18} color="#111827" />
-              <Text className="ml-3 font-medium text-gray-800">Profile</Text>
+              <Text style={{ marginLeft: 12, fontWeight: '500', color: '#1f2937' }}>Profile</Text>
             </Pressable>
-
-            <View className="h-[1px] bg-gray-200" />
-
-            {/* Logout — opens confirm modal instead of logging out directly */}
-            <Pressable
-              onPress={() => {
-                setMenuVisible(false);
-                setLogoutVisible(true);
-              }}
-              style={{ flexDirection: 'row', padding: 12, alignItems: 'center' }}
-            >
+            <View style={{ height: 1, backgroundColor: '#e5e7eb' }} />
+            <Pressable onPress={openLogout} style={{ flexDirection: 'row', padding: 12, alignItems: 'center' }}>
               <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-              <Text className="ml-3 font-medium text-red-500">Logout</Text>
+              <Text style={{ marginLeft: 12, fontWeight: '500', color: '#ef4444' }}>Logout</Text>
             </Pressable>
           </View>
         </Pressable>
       </Modal>
 
-      {/* ── Logout confirmation modal ─────────────────────────────── */}
-      <Modal
-        visible={logoutVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setLogoutVisible(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50 px-4">
-          <View
-            style={{ backgroundColor: '#ffffff' }}
-            className="w-full max-w-sm rounded-2xl p-5"
-          >
-            <View className="items-center mb-4">
-              <View className="bg-red-100 p-3 rounded-full mb-3">
+      {/* Logout confirm */}
+      <Modal visible={logoutVisible} transparent animationType="fade" onRequestClose={closeLogout}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 16 }}>
+          <View style={{ backgroundColor: '#fff', width: '100%', maxWidth: 360, borderRadius: 20, padding: 20 }}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ backgroundColor: '#fee2e2', padding: 12, borderRadius: 50, marginBottom: 12 }}>
                 <Feather name="log-out" size={28} color="#ef4444" />
               </View>
-              <Text style={{ color: '#111827' }} className="text-lg font-bold">
-                Logout
-              </Text>
-              <Text style={{ color: '#6b7280' }} className="text-center mt-2">
-                Are you sure you want to logout? You'll need to login again to access your account.
+              <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827' }}>Logout</Text>
+              <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', marginTop: 6 }}>
+                Are you sure you want to logout?
               </Text>
             </View>
-
-            <View className="flex-row">
-              <Pressable
-                className="flex-1 py-3 rounded-xl mr-2"
-                style={{ backgroundColor: '#e5e7eb' }}
-                onPress={() => setLogoutVisible(false)}
-              >
-                <Text style={{ color: '#111827' }} className="text-center font-semibold">
-                  Cancel
-                </Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Pressable onPress={closeLogout} style={{ flex: 1, paddingVertical: 13, backgroundColor: '#e5e7eb', borderRadius: 12, alignItems: 'center' }}>
+                <Text style={{ fontWeight: '600', color: '#374151' }}>Cancel</Text>
               </Pressable>
-              <Pressable
-                className="flex-1 py-3 rounded-xl ml-2 bg-red-500"
-                onPress={handleLogout}
-              >
-                <Text className="text-center font-semibold text-white">Logout</Text>
+              <Pressable onPress={handleLogout} style={{ flex: 1, paddingVertical: 13, backgroundColor: '#ef4444', borderRadius: 12, alignItems: 'center' }}>
+                <Text style={{ fontWeight: '600', color: '#fff' }}>Logout</Text>
               </Pressable>
             </View>
           </View>
@@ -142,3 +95,5 @@ export default function Navbar({ user }: NavbarProps) {
     </View>
   );
 }
+
+export default memo(Navbar);

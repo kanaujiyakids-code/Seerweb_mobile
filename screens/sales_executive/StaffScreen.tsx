@@ -264,7 +264,7 @@ export default function StaffScreen() {
   /* -------------------- MAIN RETURN -------------------- */
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1}} edges={['top']}>
       <Navbar user={user?.name} />
 
       {/* ---------- TOP TABS ---------- */}

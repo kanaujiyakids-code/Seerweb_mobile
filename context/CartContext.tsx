@@ -1,40 +1,28 @@
-import React, { createContext, useContext, useReducer, useEffect, ReactNode, useMemo,useCallback } from 'react';
+/**
+ * CartContext — OPTIMIZED
+ *
+ * Key fixes:
+ * 1. Dynamic import('cache') replaced with static import — no async on clearCart
+ * 2. safeCart and cartCount computed in one useMemo (not two)
+ * 3. Persist debounce timer ref instead of creating new closure every render
+ * 4. EventRegister.emit only when cartCount actually changes (not on every persist)
+ * 5. AsyncStorage write batched — only persists when state settles
+ */
+import React, {
+  createContext, useContext, useReducer, useEffect,
+  ReactNode, useMemo, useCallback, useRef,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { EventRegister } from 'react-native-event-listeners';
+import { invalidateCaches } from '../src/lib/cache'; // ✅ static import
 
-// Types from ProductCart
 export interface ProductVariant {
-  id: number;
-  size?: string;
-  color?: string;
-  rate?: number;
-  mrp?: number;
-  qty: number;
+  id: number; size?: string; color?: string; rate?: number; mrp?: number; qty: number;
 }
-
-export interface Product {
-  id: number;
-  name: string;
-  brand?: string;
-  model?: string;
-  price: number;
-  stock: number;
-  description?: string;
-  dealerid: number;
-  image?: string | null;
-  attributes?: Record<string, string>;
-  business_type_id?: number | null;
-  variants?: ProductVariant[];
-}
-
 export interface CartItem {
-  productId: number;
-  variantId: number; // 0 for simple
-  size?: string;
-  color?: string;
-  price: number;
-  quantity: number;
-  stock: number;
+  productId: number; variantId: number;
+  size?: string; color?: string;
+  price: number; quantity: number; stock: number;
 }
 
 type CartAction =
@@ -44,58 +32,33 @@ type CartAction =
   | { type: 'REMOVE'; payload: { productId: number; variantId: number } }
   | { type: 'CLEAR' };
 
-const CART_KEY = 'cart'; // Unified key
+const CART_KEY = 'cart';
 
 const cartReducer = (state: CartItem[], action: CartAction): CartItem[] => {
-  // Safety net: if state is ever not an array, reset it
-  const safeState = Array.isArray(state) ? state : [];
-
+  const s = Array.isArray(state) ? state : [];
   switch (action.type) {
     case 'LOAD':
-      // Guard against non-array payloads (corrupted AsyncStorage data)
       return Array.isArray(action.payload) ? action.payload : [];
-
     case 'ADD': {
-      const existingAdd = safeState.find(
-        (item) =>
-          item.productId === action.payload.productId &&
-          item.variantId === action.payload.variantId
-      );
-      if (existingAdd) {
-        return safeState.map((item) =>
-          item.productId === action.payload.productId &&
-          item.variantId === action.payload.variantId
-            ? { ...item, quantity: item.quantity + action.payload.quantity }
-            : item
-        );
+      const idx = s.findIndex(i => i.productId === action.payload.productId && i.variantId === action.payload.variantId);
+      if (idx >= 0) {
+        const next = [...s];
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + action.payload.quantity };
+        return next;
       }
-      return [...safeState, action.payload];
+      return [...s, action.payload];
     }
-
     case 'UPDATE':
-      return safeState
-        .map((item) =>
-          item.productId === action.payload.productId &&
-          item.variantId === action.payload.variantId
-            ? { ...item, quantity: action.payload.quantity }
-            : item
-        )
-        .filter((item) => item.quantity > 0);
-
+      return s
+        .map(i => i.productId === action.payload.productId && i.variantId === action.payload.variantId
+          ? { ...i, quantity: action.payload.quantity } : i)
+        .filter(i => i.quantity > 0);
     case 'REMOVE':
-      return safeState.filter(
-        (item) =>
-          !(
-            item.productId === action.payload.productId &&
-            item.variantId === action.payload.variantId
-          )
-      );
-
+      return s.filter(i => !(i.productId === action.payload.productId && i.variantId === action.payload.variantId));
     case 'CLEAR':
       return [];
-
     default:
-      return safeState;
+      return s;
   }
 };
 
@@ -113,135 +76,86 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [cart, dispatch] = useReducer(cartReducer, []);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevCountRef = useRef<number>(0);
 
-  const addToCart = (
-    item: Partial<CartItem> & Pick<CartItem, 'productId' | 'variantId' | 'price' | 'quantity'>
-  ) => {
-    dispatch({ type: 'ADD', payload: { ...item, stock: item.stock ?? 0 } as CartItem });
-  };
-
-  const updateCartQuantity = (productId: number, variantId: number, quantity: number) => {
-    dispatch({ type: 'UPDATE', payload: { productId, variantId, quantity } });
-  };
-
-  const removeFromCart = (productId: number, variantId: number) => {
-    dispatch({ type: 'REMOVE', payload: { productId, variantId } });
-  };
-
-  const clearCart = () => {
-    dispatch({ type: 'CLEAR' });
-    EventRegister.emit('cartChanged', 0);
-  };
-
-  const loadCart = (items: CartItem[]) => {
-    // Guard before dispatching externally supplied data
-    dispatch({ type: 'LOAD', payload: Array.isArray(items) ? items : [] });
-  };
-
-  // ── Load persisted cart on mount ────────────────────────────────────────────
+  // ── Load persisted cart on mount ───────────────────────────────────────────
   useEffect(() => {
-    const initCart = async () => {
+    AsyncStorage.getItem(CART_KEY).then(saved => {
+      if (!saved) return;
       try {
-        const saved = await AsyncStorage.getItem(CART_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          // Only dispatch if the parsed value is actually an array
-          if (Array.isArray(parsed)) {
-            dispatch({ type: 'LOAD', payload: parsed });
-          } else {
-            // Corrupted data — clear the key so it doesn't persist
-            await AsyncStorage.removeItem(CART_KEY);
-          }
-        }
-      } catch (e) {
-        console.error('Cart load failed:', e);
-        // On parse error, wipe the bad entry
-        try {
-          await AsyncStorage.removeItem(CART_KEY);
-        } catch (_) {}
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) dispatch({ type: 'LOAD', payload: parsed });
+        else AsyncStorage.removeItem(CART_KEY);
+      } catch {
+        AsyncStorage.removeItem(CART_KEY);
       }
-    };
-    initCart();
+    });
   }, []);
 
-  // Memoized safeCart & cartCount - compute once
-  const safeCart = useMemo(() => Array.isArray(cart) ? cart : [], [cart]);
-  const cartCount = useMemo(() => 
-    safeCart.reduce((sum, item) => sum + item.quantity, 0), 
-    [safeCart]
-  );
+  // ✅ FIX: Single useMemo for both safeCart and cartCount
+  const { safeCart, cartCount } = useMemo(() => {
+    const safeCart = Array.isArray(cart) ? cart : [];
+    const cartCount = safeCart.reduce((sum, item) => sum + item.quantity, 0);
+    return { safeCart, cartCount };
+  }, [cart]);
 
-  // Memoized stable actions
-  const memoAddToCart = useCallback((
-    item: Partial<CartItem> & Pick<CartItem, 'productId' | 'variantId' | 'price' | 'quantity'>
-  ) => {
-    dispatch({ type: 'ADD', payload: { ...item, stock: item.stock ?? 0 } as CartItem });
-  }, [dispatch]);
-
-  const memoUpdateQuantity = useCallback((
-    productId: number, 
-    variantId: number, 
-    quantity: number
-  ) => {
-    dispatch({ type: 'UPDATE', payload: { productId, variantId, quantity } });
-  }, [dispatch]);
-
-  const memoRemoveFromCart = useCallback((
-    productId: number, 
-    variantId: number
-  ) => {
-    dispatch({ type: 'REMOVE', payload: { productId, variantId } });
-  }, [dispatch]);
-
-  const memoClearCart = useCallback(() => {
-    dispatch({ type: 'CLEAR' });
-    EventRegister.emit('cartChanged', 0);
-    // Invalidate relevant caches (products/cart-related)
-    import('../src/lib/cache').then(({ clearCache, invalidateCaches }) => {
-      invalidateCaches('/products'); // Bust product caches on order clear
-    });
-  }, [dispatch]);
-
-  const memoLoadCart = useCallback((items: CartItem[]) => {
-    dispatch({ type: 'LOAD', payload: Array.isArray(items) ? items : [] });
-  }, [dispatch]);
-
-  // ── DEBOUNCED Persist + emit (300ms) ────────────────────────────────────────
+  // ✅ FIX: Debounced persist with ref-based timer, emit only on count change
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    
-    const saveAndEmit = async () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
       try {
         await AsyncStorage.setItem(CART_KEY, JSON.stringify(safeCart));
-        EventRegister.emit('cartChanged', cartCount);
+        // Only emit if count actually changed — prevents unnecessary re-renders
+        if (prevCountRef.current !== cartCount) {
+          prevCountRef.current = cartCount;
+          EventRegister.emit('cartChanged', cartCount);
+        }
       } catch (e) {
         console.error('Cart save failed:', e);
       }
-    };
+    }, 400);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [safeCart, cartCount]);
 
-    // Debounce: wait 300ms after last change
-    timeoutId = setTimeout(saveAndEmit, 300);
+  // ✅ FIX: No dynamic import — invalidateCaches is statically imported
+  const clearCart = useCallback(() => {
+    dispatch({ type: 'CLEAR' });
+    invalidateCaches('/products');
+    EventRegister.emit('cartChanged', 0);
+  }, []);
 
-    return () => clearTimeout(timeoutId);
-  }, [safeCart, cartCount]); // Only when actual data changes
+  const addToCart = useCallback((item: Partial<CartItem> & Pick<CartItem, 'productId' | 'variantId' | 'price' | 'quantity'>) => {
+    dispatch({ type: 'ADD', payload: { ...item, stock: item.stock ?? 0 } as CartItem });
+  }, []);
 
-  const value: CartContextType = {
+  const updateCartQuantity = useCallback((productId: number, variantId: number, quantity: number) => {
+    dispatch({ type: 'UPDATE', payload: { productId, variantId, quantity } });
+  }, []);
+
+  const removeFromCart = useCallback((productId: number, variantId: number) => {
+    dispatch({ type: 'REMOVE', payload: { productId, variantId } });
+  }, []);
+
+  const loadCart = useCallback((items: CartItem[]) => {
+    dispatch({ type: 'LOAD', payload: Array.isArray(items) ? items : [] });
+  }, []);
+
+  const value: CartContextType = useMemo(() => ({
     cart: safeCart,
     cartCount,
-    addToCart: memoAddToCart,
-    updateCartQuantity: memoUpdateQuantity,
-    removeFromCart: memoRemoveFromCart,
-    clearCart: memoClearCart,
-    loadCart: memoLoadCart,
-  };
+    addToCart,
+    updateCartQuantity,
+    removeFromCart,
+    clearCart,
+    loadCart,
+  }), [safeCart, cartCount, addToCart, updateCartQuantity, removeFromCart, clearCart, loadCart]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 };
-  
-// Stable useCart hook
-export const useCart = () => {
-  const context = useContext(CartContext);
-  if (!context) throw new Error('useCart must be used within CartProvider');
-  return context;
-};
 
+export const useCart = () => {
+  const ctx = useContext(CartContext);
+  if (!ctx) throw new Error('useCart must be used within CartProvider');
+  return ctx;
+};

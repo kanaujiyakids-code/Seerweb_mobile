@@ -18,12 +18,11 @@ import { apiUrl } from 'apiurl';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
 
-const TABS = ['all', 'pending', 'approved', 'dispatched', 'delivered'];
+const TABS = ['all', 'pending', 'approved', 'delivered'];
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-200 text-yellow-800 w-20',
   approved: 'bg-blue-200 text-blue-800 w-20',
-  dispatched: 'bg-indigo-200 text-indigo-800 w-20',
   delivered: 'bg-green-200 text-green-800 w-20',
   cancelled: 'bg-red-200 text-red-800 w-20',
 };
@@ -158,8 +157,6 @@ const RetailerOrderScreen = () => {
     }
   };
 
-  // Filtered & searched orders
-  // 1️⃣ Filter orders based on active tab, search, and date
   const filteredOrders = useMemo(() => {
     return orders
       .filter((o) => (activeTab === 'all' ? true : o.status === activeTab))
@@ -173,16 +170,13 @@ const RetailerOrderScreen = () => {
       .filter((o) => applyDateFilter(new Date(o.createdAt)));
   }, [orders, activeTab, searchText, dateFilter, fromDate, toDate]);
 
-// 2️⃣ Pagination logic
   const isAll = itemsPerPage.toString() === 'All';
   const perPage = isAll ? filteredOrders.length : Number(itemsPerPage);
 
-  // 3️⃣ Sort filtered orders by createdAt in DESCENDING ORDER
   const sortedOrders = [...filteredOrders].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  // 4️⃣ Slice orders for current page
   const indexOfLastItem = currentPage * perPage;
   const indexOfFirstItem = indexOfLastItem - perPage;
 
@@ -190,7 +184,6 @@ const RetailerOrderScreen = () => {
     ? sortedOrders
     : sortedOrders.slice(indexOfFirstItem, indexOfLastItem);
 
-  // 5️⃣ Total pages
   const totalPages = isAll ? 1 : Math.ceil(filteredOrders.length / perPage);
 
 
@@ -445,9 +438,11 @@ const RetailerOrderScreen = () => {
               <View className="mb-4">
                 <Text className="font-semibold mb-2">Items:</Text>
                 {selectedOrder.items.map((item, index) => (
-                  <View key={index} className="flex-row justify-between mb-1">
-                    <Text className="text-sm text-gray-800">{item.product.name} x {item.quantity}</Text>
-                    <Text className="text-sm text-gray-800">
+                  <View key={index} className="flex-row justify-between items-start mb-2">
+                    <Text className="text-sm text-gray-800 flex-1 mr-3" style={{ flexShrink: 1 }}>
+                      {item.product.name} x {item.quantity}
+                    </Text>
+                    <Text className="text-sm text-gray-800 font-medium" style={{ flexShrink: 0 }}>
                       ₹ {(item.product.price * item.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   </View>

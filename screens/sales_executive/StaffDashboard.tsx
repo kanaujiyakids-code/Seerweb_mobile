@@ -1,587 +1,334 @@
-import React, { useEffect, useState, useMemo } from 'react';
+/**
+ * StaffDashboard — with screenDataCache
+ *
+ * Uses screenDataCache from BottomTabNavigator so that when the tab is
+ * pressed and the screen remounts (due to CommonActions.reset), it renders
+ * immediately from cached data with zero visible loading delay.
+ * Data is refreshed silently in the background.
+ */
+import React, { useEffect, useState, useMemo, memo, useCallback } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  ActivityIndicator,
-  Dimensions,
-  Linking,
-  Platform,
-  Modal,
+  View, Text, ScrollView, Pressable,
+  Linking, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../types/navigation';
 import RefreshWrapper from '../../components/RefreshWrapper';
-import BottomTabNavigator from '../../components/BottomTabNavigator';
-import Svg, { Path, Circle, G, Text as SvgText, Line, Rect } from 'react-native-svg';
-import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import BottomTabNavigator, { screenDataCache } from '../../components/BottomTabNavigator';
+import Svg, { Path, G, Text as SvgText } from 'react-native-svg';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiGet } from '@/lib/services/api';
 import Navbar from '../../components/Navbar';
 
-type OrderItem = {
-  quantity: number;
-  price: number;
-};
+const CACHE_KEY = 'StaffDashboard';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+type OrderItem = { quantity: number; price: number };
+type Order = { id: number; ledgerName: string; createdAt: string; items: OrderItem[]; status?: string };
 
-
-// Mock Data for Sales Executive
-
-
-interface StatCardProps {
-  title: string;
-  value: number | string;
-  icon: React.ReactNode;
-  bgColor: string;
-  change?: number;
-}
-
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon, bgColor, change }) => {
-  const isPositive = change !== undefined && change >= 0;
-  const changeColor = isPositive ? '#10b981' : '#ef4444';
-
+// ── Memoized StatCard ─────────────────────────────────────────────────────────
+const StatCard = memo(({ title, value, icon, bgColor, change }: {
+  title: string; value: number | string; icon: React.ReactNode; bgColor: string; change?: number;
+}) => {
+  const isPositive = change === undefined || change >= 0;
+  const cc = isPositive ? '#10b981' : '#ef4444';
   return (
-    <View className="bg-white rounded-2xl p-4 shadow-sm flex-1 mx-1 min-w-[150px]" data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, '-')}`}>
-      <View className="flex-row justify-between items-start mb-2">
-        <Text className="text-gray-500 text-xs font-medium" numberOfLines={1}>{title}</Text>
-        <View style={{ backgroundColor: bgColor }} className="p-2 rounded-xl">
-          {icon}
-        </View>
+    <View style={styles.statCard}>
+      <View style={styles.statRow}>
+        <Text style={styles.statTitle} numberOfLines={1}>{title}</Text>
+        <View style={[styles.statIcon, { backgroundColor: bgColor }]}>{icon}</View>
       </View>
-      <Text className="text-2xl font-bold text-gray-900">{value}</Text>
+      <Text style={styles.statValue}>{value}</Text>
       {change !== undefined && (
-        <View className="flex-row items-center mt-2">
-          <View 
-            style={{ backgroundColor: isPositive ? '#d1fae5' : '#fee2e2' }} 
-            className="flex-row items-center px-2 py-1 rounded-full"
-          >
-            <Text style={{ color: changeColor }} className="text-xs font-semibold">
-              {isPositive ? '↑' : '↓'} {isPositive ? '+' : ''}{change.toFixed(1)}%
-            </Text>
+        <View style={styles.changeRow}>
+          <View style={[styles.changeBadge, { backgroundColor: isPositive ? '#d1fae5' : '#fee2e2' }]}>
+            <Text style={[styles.changeText, { color: cc }]}>{isPositive ? '↑ +' : '↓ '}{change.toFixed(1)}%</Text>
           </View>
-          <Text className="text-gray-400 text-[10px] ml-1">vs last month</Text>
+          <Text style={styles.changeLabel}>vs last month</Text>
         </View>
       )}
     </View>
   );
-};
+});
 
-// Bar Chart Component
-interface BarChartProps {
-  data: { month: string; value: number }[];
-  width: number;
-  height: number;
-  color: string;
-  label: string;
-}
-
-const BarChart: React.FC<BarChartProps> = ({ data, width, height, color, label }) => {
-  const padding = { top: 20, right: 15, bottom: 40, left: 45 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  const maxValue = Math.max(...data.map(d => d.value)) * 1.1;
-  const barWidth = (chartWidth / data.length) * 0.6;
-  const barGap = (chartWidth / data.length) * 0.4;
-
-  return (
-    <View>
-      <Text className="text-sm font-semibold text-gray-700 mb-2">{label}</Text>
-      <Svg width={width} height={height}>
-        {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
-          <G key={i}>
-            <Line
-              x1={padding.left}
-              y1={padding.top + chartHeight * (1 - ratio)}
-              x2={width - padding.right}
-              y2={padding.top + chartHeight * (1 - ratio)}
-              stroke="#e5e7eb"
-              strokeWidth={1}
-            />
-            <SvgText
-              x={padding.left - 5}
-              y={padding.top + chartHeight * (1 - ratio) + 4}
-              textAnchor="end"
-              fontSize="9"
-              fill="#9ca3af"
-            >
-              {Math.round(maxValue * ratio / 1000)}k
-            </SvgText>
-          </G>
-        ))}
-
-        {data.map((d, i) => {
-          const barHeight = (d.value / maxValue) * chartHeight;
-          const x = padding.left + i * (barWidth + barGap) + barGap / 2;
-          const y = padding.top + chartHeight - barHeight;
-
-          return (
-            <G key={i}>
-              <Rect
-                x={x}
-                y={y}
-                width={barWidth}
-                height={barHeight}
-                fill={color}
-                rx={4}
-              />
-              <SvgText
-                x={x + barWidth / 2}
-                y={height - 10}
-                textAnchor="middle"
-                fontSize="10"
-                fill="#6b7280"
-              >
-                {d.month}
-              </SvgText>
-            </G>
-          );
-        })}
-      </Svg>
-    </View>
-  );
-};
-
-// Donut Chart Component
-interface DonutChartProps {
-  data: { label: string; value: number; color: string }[];
-  size: number;
-}
-
-const DonutChart: React.FC<DonutChartProps> = ({ data, size }) => {
-  const total = data.reduce((sum, item) => sum + item.value, 0);
-  if (total === 0) return null;
-  
-  const radius = size / 2 - 15;
-  const innerRadius = radius * 0.6;
-  const center = size / 2;
-
-  let currentAngle = -90;
-
-  const paths = data.map((item, index) => {
-    if (item.value === 0) return null;
-    const angle = (item.value / total) * 360;
-    const startAngle = currentAngle;
-    const endAngle = currentAngle + angle;
-    currentAngle = endAngle;
-
-    const startRad = (startAngle * Math.PI) / 180;
-    const endRad = (endAngle * Math.PI) / 180;
-
-    const x1 = center + radius * Math.cos(startRad);
-    const y1 = center + radius * Math.sin(startRad);
-    const x2 = center + radius * Math.cos(endRad);
-    const y2 = center + radius * Math.sin(endRad);
-
-    const x3 = center + innerRadius * Math.cos(endRad);
-    const y3 = center + innerRadius * Math.sin(endRad);
-    const x4 = center + innerRadius * Math.cos(startRad);
-    const y4 = center + innerRadius * Math.sin(startRad);
-
-    const largeArc = angle > 180 ? 1 : 0;
-
-    const d = `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${x4} ${y4} Z`;
-
-    return <Path key={index} d={d} fill={item.color} />;
+// ── Memoized DonutChart ───────────────────────────────────────────────────────
+const DonutChart = memo(({ data, size }: { data: { label: string; value: number; color: string }[]; size: number }) => {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return <View style={{ width: size, height: size }} />;
+  const r = size / 2 - 15, ir = r * 0.6, c = size / 2;
+  let angle = -90;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const paths = data.map((item, i) => {
+    if (!item.value) return null;
+    const sweep = (item.value / total) * 360;
+    const sa = angle; angle += sweep;
+    const ea = angle;
+    const x1 = c + r * Math.cos(toRad(sa)), y1 = c + r * Math.sin(toRad(sa));
+    const x2 = c + r * Math.cos(toRad(ea)), y2 = c + r * Math.sin(toRad(ea));
+    const x3 = c + ir * Math.cos(toRad(ea)), y3 = c + ir * Math.sin(toRad(ea));
+    const x4 = c + ir * Math.cos(toRad(sa)), y4 = c + ir * Math.sin(toRad(sa));
+    const la = sweep > 180 ? 1 : 0;
+    return <Path key={i} d={`M${x1} ${y1}A${r} ${r} 0 ${la} 1 ${x2} ${y2}L${x3} ${y3}A${ir} ${ir} 0 ${la} 0 ${x4} ${y4}Z`} fill={item.color} />;
   });
-
   return (
     <Svg width={size} height={size}>
       <G>{paths}</G>
-      <SvgText x={center} y={center - 5} textAnchor="middle" fontSize="18" fontWeight="bold" fill="#1f2937">
-        {total}
-      </SvgText>
-      <SvgText x={center} y={center + 12} textAnchor="middle" fontSize="9" fill="#6b7280">
-        Total Orders
-      </SvgText>
+      <SvgText x={c} y={c - 5} textAnchor="middle" fontSize="18" fontWeight="bold" fill="#1f2937">{total}</SvgText>
+      <SvgText x={c} y={c + 12} textAnchor="middle" fontSize="9" fill="#6b7280">Total Orders</SvgText>
     </Svg>
   );
-};
+});
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+const Skeleton = memo(() => (
+  <View style={{ padding: 16 }}>
+    <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+      {[0,1,2,3].map(i => <View key={i} style={{ flex: 1, height: 90, backgroundColor: '#e5e7eb', borderRadius: 16, marginRight: i < 3 ? 8 : 0 }} />)}
+    </View>
+    <View style={{ height: 200, backgroundColor: '#e5e7eb', borderRadius: 16, marginBottom: 12 }} />
+    <View style={{ height: 220, backgroundColor: '#e5e7eb', borderRadius: 16 }} />
+  </View>
+));
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  pending: { bg: '#fef3c7', text: '#92400e' },
+  pending:  { bg: '#fef3c7', text: '#92400e' },
   approved: { bg: '#dbeafe', text: '#1e40af' },
-  delivered: { bg: '#d1fae5', text: '#065f46' },
+  delivered:{ bg: '#d1fae5', text: '#065f46' },
 };
+const LAST_MONTH = { totalOrders: 5, totalCustomers: 4, pendingOrders: 1 };
 
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function StaffDashboard() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  // const [orders, setOrders] = useState(MOCK_ORDERS);
-  // const [retailers] = useState(MOCK_RETAILERS);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [retailers, setRetailers] = useState<any[]>([]);
-  const [showWelcome, setShowWelcome] = useState<boolean>(false);
+
+  // ✅ Load from cache immediately — no blank screen on tab switch
+  const cached = screenDataCache[CACHE_KEY];
+  const [user, setUser]         = useState<any>(cached?.user ?? null);
+  const [orders, setOrders]     = useState<Order[]>(cached?.orders ?? []);
+  const [retailers, setRetailers] = useState<any[]>(cached?.retailers ?? []);
+  const [loading, setLoading]   = useState(!cached); // skip loading if cache exists
+
+  const fetchData = useCallback(async (executiveId: number, silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [ordersRes, retailersRes] = await Promise.all([
+        apiGet(`/orders/byexecutive?executiveid=${executiveId}`),
+        apiGet(`/staff/get_retailers_by_executive?executiveid=${executiveId}`),
+      ]);
+      const norm = (d: any) => Array.isArray(d) ? d : Array.isArray(d?.orders) ? d.orders : Array.isArray(d?.data) ? d.data : [];
+      const o = norm(ordersRes);
+      const r = norm(retailersRes);
+      setOrders(o);
+      setRetailers(r);
+      // ✅ Save to cache so next remount is instant
+      screenDataCache[CACHE_KEY] = { user, orders: o, retailers: r };
+    } catch (e) {
+      console.error('Dashboard load failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const userStr = await AsyncStorage.getItem('user');
-        if (!userStr) {
-          navigation.replace('Login');
-          return;
-        }
+    const init = async () => {
+      const userStr = await AsyncStorage.getItem('user');
+      if (!userStr) { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Login' }] })); return; }
+      const userData = JSON.parse(userStr);
+      if (userData.role !== 'staff') { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'RetailerDashboard' }] })); return; }
+      setUser(userData);
+      screenDataCache[CACHE_KEY] = { ...screenDataCache[CACHE_KEY], user: userData };
 
-        const userData = JSON.parse(userStr);
-        if (userData.role !== 'staff') {
-          navigation.replace('RetailerDashboard');
-          return;
-        }
-
-        setUser(userData);
-
-        const executiveId = userData.id;
-
-        // 🔥 LIVE API CALLS
-        const ordersRes = await apiGet(
-          `/orders/byexecutive?executiveid=${executiveId}`
-        );
-
-        const retailersRes = await apiGet(
-          `/staff/get_retailers_by_executive?executiveid=${executiveId}`
-        );
-
-        const normalizeArray = (data: any) => {
-          if (Array.isArray(data)) return data;
-          if (Array.isArray(data?.orders)) return data.orders;
-          if (Array.isArray(data?.data)) return data.data;
-          return [];
-        };
-
-        setOrders(normalizeArray(ordersRes));
-        setRetailers(normalizeArray(retailersRes));
-
-      } catch (error) {
-        console.error('Dashboard load failed:', error);
-      } finally {
-        setLoading(false);
+      if (cached) {
+        // ✅ Already rendered from cache — refresh silently in background
+        fetchData(userData.id, true);
+      } else {
+        fetchData(userData.id, false);
       }
     };
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    loadDashboard();
-  }, []);
-  
-  type Order = {
-  id: number;
-  ledgerName: string;
-  createdAt: string;
-  items: {
-    quantity: number;
-    price: number;
-  }[];
-  status?: string;
-};
-
-  // Calculate statistics
-  const stats = useMemo(() => {
-    const LAST_MONTH_STATS = {
-      totalOrders: 5,
-      totalCustomers: 4,
-      pendingOrders: 1,
-      totalRevenue: 980000,
-    };
-
-    const totalOrders = orders.length;
-    const pendingOrders = (orders || []).filter(o => o.status === 'pending').length;
-    const deliveredOrders = orders.filter(o => o.status === 'delivered').length;
-
-    const totalRevenue = orders.reduce((sum: number, o: Order) => {
+  // ── Single-pass stats ─────────────────────────────────────────────────────
+  const dash = useMemo(() => {
+    let pending = 0, approved = 0, delivered = 0;
+    const recent: Order[] = [];
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      const st = o.status ?? 'pending';
+      if (st === 'pending') pending++;
+      else if (st === 'approved') approved++;
+      else if (st === 'delivered') delivered++;
+      if (i < 4) recent.push(o);
+    }
+    const calc = (c: number, p: number) => p === 0 ? (c > 0 ? 100 : 0) : ((c - p) / p) * 100;
+    const recentOrders = recent.map(o => {
       const items = Array.isArray(o.items) ? o.items : [];
-      return (
-        sum +
-        items.reduce(
-          (itemSum: number, i: OrderItem) =>
-            itemSum + (i.quantity || 0) * (i.price || 0),
-          0
-        )
-      );
-    }, 0);
-
-    const totalCustomers = retailers.length;
-
-    const calcChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return ((current - previous) / previous) * 100;
-    };
-
+      return {
+        id: o.id, storeName: o.ledgerName,
+        itemCount: items.reduce((s, i) => s + i.quantity, 0),
+        total: items.reduce((s, i) => s + i.quantity * i.price, 0),
+        date: o.createdAt, status: o.status ?? 'pending',
+      };
+    });
     return {
-      totalOrders,
-      pendingOrders,
-      deliveredOrders,
-      totalRevenue,
-      totalCustomers,
-      totalOrdersChange: calcChange(totalOrders, LAST_MONTH_STATS.totalOrders),
-      customersChange: calcChange(totalCustomers, LAST_MONTH_STATS.totalCustomers),
-      pendingChange: calcChange(pendingOrders, LAST_MONTH_STATS.pendingOrders),
+      totalOrders: orders.length, pending, approved, delivered,
+      totalCustomers: retailers.length,
+      totalOrdersChange: calc(orders.length, LAST_MONTH.totalOrders),
+      customersChange: calc(retailers.length, LAST_MONTH.totalCustomers),
+      pendingChange: calc(pending, LAST_MONTH.pendingOrders),
+      statusDist: [
+        { label: 'Pending', value: pending, color: '#f59e0b' },
+        { label: 'Approved', value: approved, color: '#3b82f6' },
+        { label: 'Delivered', value: delivered, color: '#10b981' },
+      ],
+      recentOrders,
     };
   }, [orders, retailers]);
 
-  // Order status distribution
-  const statusDistribution = useMemo(() => [
-    { label: 'Pending', value: orders.filter(o => o.status === 'pending').length, color: '#f59e0b' },
-    { label: 'Approved', value: orders.filter(o => o.status === 'approved').length, color: '#3b82f6' },
-    { label: 'Delivered', value: orders.filter(o => o.status === 'delivered').length, color: '#10b981' },
-  ], [orders]);
-
- const recentOrders = useMemo(() => {
-  return orders
-    .slice(0, 4)
-    .map(o => {
-      const items = Array.isArray(o.items) ? o.items : [];
-
-      return {
-        id: o.id,
-        storeName: o.ledgerName,
-        items: items.reduce(
-          (sum: number, i: OrderItem) => sum + i.quantity,
-          0
-        ),
-        total: items.reduce(
-          (sum: number, i: OrderItem) => sum + i.quantity * i.price,
-          0
-        ),
-        date: o.createdAt,
-        status: o.status ?? 'pending',
-      };
-    });
-}, [orders]);
-
   const topCustomers = useMemo(() => retailers.slice(0, 3), [retailers]);
 
-  const handleRefresh = async () => {
-    try {
-      const userStr = await AsyncStorage.getItem('user');
-      if (!userStr) return;
+  const handleRefresh = useCallback(async () => {
+    if (user?.id) await fetchData(user.id, false);
+  }, [user, fetchData]);
 
-      const userData = JSON.parse(userStr);
-      const executiveId = userData.id;
-
-      const ordersRes = await apiGet(
-        `/orders/byexecutive?executiveid=${executiveId}`
-      );
-      setOrders(Array.isArray(ordersRes) ? ordersRes : []);
-    } catch (e) {
-      console.error('Refresh failed', e);
-    }
-  };
-
-  const chartWidth = SCREEN_WIDTH - 64;
-
-  if (loading) {
-    return (
-      <SafeAreaView className="flex-1">
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#566de2" />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // ✅ All internal navigation also uses reset to prevent overlap
+  const goTo = useCallback((screen: keyof RootStackParamList) => {
+    navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: screen }] }));
+  }, [navigation]);
 
   return (
-    <SafeAreaView className="flex-1" edges={['top']}>
+    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
       <Navbar user={user?.name} />
-      <RefreshWrapper onRefresh={handleRefresh}>
-        <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-          {/* Header */}
-          <View className="mb-6" data-testid="staff-dashboard-header">
-           
-          </View>
 
-          {/* Stats Cards - Row 1 */}
+      {loading ? (
+        <Skeleton />
+      ) : (
+        <RefreshWrapper onRefresh={handleRefresh}>
           <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            className="mb-4"
-            contentContainerStyle={{ paddingRight: 16 }}
+            style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            removeClippedSubviews
           >
-            <StatCard
-              title="Total Orders"
-              value={stats.totalOrders}
-              icon={<Feather name="shopping-bag" size={18} color="#3b82f6" />}
-              bgColor="#dbeafe"
-              change={stats.totalOrdersChange}
-            />
-            <StatCard
-              title="Customers"
-              value={stats.totalCustomers}
-              icon={<Feather name="users" size={18} color="#8b5cf6" />}
-              bgColor="#ede9fe"
-              change={stats.customersChange}
-            />
-            <StatCard
-              title="Pending"
-              value={stats.pendingOrders}
-              icon={<Feather name="clock" size={18} color="#f59e0b" />}
-              bgColor="#fef3c7"
-              change={stats.pendingChange}
-            />
-            <StatCard
-              title="Delivered"
-              value={stats.deliveredOrders}
-              icon={<Feather name="check-circle" size={18} color="#10b981" />}
-              bgColor="#d1fae5"
-            />
-          </ScrollView>
+            {/* Stats */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }} contentContainerStyle={{ paddingRight: 16 }}>
+              <StatCard title="Total Orders" value={dash.totalOrders} icon={<Feather name="shopping-bag" size={18} color="#3b82f6" />} bgColor="#dbeafe" change={dash.totalOrdersChange} />
+              <StatCard title="Customers" value={dash.totalCustomers} icon={<Feather name="users" size={18} color="#8b5cf6" />} bgColor="#ede9fe" change={dash.customersChange} />
+              <StatCard title="Pending" value={dash.pending} icon={<Feather name="clock" size={18} color="#f59e0b" />} bgColor="#fef3c7" change={dash.pendingChange} />
+              <StatCard title="Delivered" value={dash.delivered} icon={<Feather name="check-circle" size={18} color="#10b981" />} bgColor="#d1fae5" />
+            </ScrollView>
 
-          {/* Charts Row */}
-          <View className="flex-row mb-4">
-            {/* Order Status */}
-            <View className="flex-1 bg-white rounded-2xl p-4 shadow-sm mr-2" data-testid="staff-status-chart">
-              <Text className="text-sm font-semibold text-gray-800 mb-3">Order Status</Text>
-              <View className="items-center">
-                <DonutChart data={statusDistribution} size={120} />
+            {/* Charts Row */}
+            <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+              <View style={[styles.card, { flex: 1, marginRight: 8 }]}>
+                <Text style={styles.cardTitle}>Order Status</Text>
+                <View style={{ alignItems: 'center' }}>
+                  <DonutChart data={dash.statusDist} size={120} />
+                </View>
+                <View style={{ marginTop: 8 }}>
+                  {dash.statusDist.map((item, i) => (
+                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color, marginRight: 6 }} />
+                      <Text style={{ color: '#6b7280', fontSize: 10, flex: 1 }}>{item.label}</Text>
+                      <Text style={{ color: '#1f2937', fontWeight: '600', fontSize: 10 }}>{item.value}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
-              <View className="mt-3">
-                {statusDistribution.map((item, index) => (
-                  <View key={index} className="flex-row items-center mb-1">
-                    <View style={{ backgroundColor: item.color }} className="w-2 h-2 rounded-full mr-2" />
-                    <Text className="text-gray-600 text-[10px] flex-1">{item.label}</Text>
-                    <Text className="text-gray-800 font-semibold text-[10px]">{item.value}</Text>
-                  </View>
+
+              <View style={[styles.card, { flex: 1, marginLeft: 8 }]}>
+                <Text style={styles.cardTitle}>Top Customers</Text>
+                {topCustomers.map((c) => (
+                  <Pressable key={c.id} style={styles.customerRow} onPress={() => c.phone && Linking.openURL(`tel:${c.phone}`)}>
+                    <View style={styles.avatar}><Text style={styles.avatarText}>{c.name.charAt(0)}</Text></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.customerName} numberOfLines={1}>{c.store_name}</Text>
+                      <Text style={styles.customerSub}>{c.name}</Text>
+                    </View>
+                    <Ionicons name="call-outline" size={14} color="#3b82f6" />
+                  </Pressable>
                 ))}
               </View>
             </View>
 
-            {/* Top Customers */}
-            <View className="flex-1 bg-white rounded-2xl p-4 shadow-sm ml-2" data-testid="top-customers">
-              <Text className="text-sm font-semibold text-gray-800 mb-3">Top Customers</Text>
-              {topCustomers.map((customer, index) => (
-                <Pressable
-                  key={customer.id}
-                  className="flex-row items-center py-2 border-b border-gray-100"
-                  onPress={() => customer.phone && Linking.openURL(`tel:${customer.phone}`)}
-                >
-                  <View className="w-8 h-8 rounded-full bg-blue-100 items-center justify-center mr-2">
-                    <Text className="text-blue-600 font-bold text-xs">{customer.name.charAt(0)}</Text>
+            {/* Recent Orders */}
+            <View style={[styles.card, { marginBottom: 16 }]}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.cardTitle}>Recent Orders</Text>
+                <Pressable onPress={() => goTo('StaffOrderScreen')}><Text style={styles.viewAll}>View all</Text></Pressable>
+              </View>
+              {dash.recentOrders.map((order, i) => (
+                <View key={order.id} style={[styles.orderRow, i !== dash.recentOrders.length - 1 && { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }]}>
+                  <View style={styles.orderIcon}><Feather name="package" size={16} color="#6366f1" /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderName}>#{order.id} - {order.storeName}</Text>
+                    <Text style={styles.orderSub}>{order.itemCount} items · {new Date(order.date).toLocaleDateString('en-IN')}</Text>
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-xs font-medium text-gray-800" numberOfLines={1}>{customer.store_name}</Text>
-                    <Text className="text-[10px] text-gray-500">{customer.name}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.orderTotal}>₹{order.total.toLocaleString('en-IN')}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[order.status]?.bg ?? '#f3f4f6' }]}>
+                      <Text style={[styles.statusText, { color: STATUS_COLORS[order.status]?.text ?? '#374151' }]}>{order.status}</Text>
+                    </View>
                   </View>
-                  <Ionicons name="call-outline" size={14} color="#3b82f6" />
-                </Pressable>
+                </View>
               ))}
             </View>
-          </View>
 
-          {/* Sales Performance Chart */}
-          {/* <View className="bg-white rounded-2xl p-4 shadow-sm mb-4" data-testid="sales-performance-chart">
-            <BarChart
-              data={MOCK_MONTHLY_PERFORMANCE.map(d => ({ month: d.month, value: d.revenue }))}
-              width={chartWidth}
-              height={180}
-              color="#6366f1"
-              label="Monthly Sales Performance (₹)"
-            />
-          </View> */}
-
-          {/* Recent Orders */}
-          <View className="bg-white rounded-2xl p-4 shadow-sm mb-4" data-testid="staff-recent-orders">
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-base font-semibold text-gray-800">Recent Orders</Text>
-              <Pressable onPress={() => navigation.replace('StaffOrderScreen')} data-testid="view-all-staff-orders-btn">
-                <Text className="text-blue-600 text-xs font-medium">View all</Text>
-              </Pressable>
-            </View>
-
-            {recentOrders.map((order, index) => (
-              <View
-                key={order.id}
-                className={`flex-row items-center py-3 ${index !== recentOrders.length - 1 ? 'border-b border-gray-100' : ''}`}
-                data-testid={`staff-order-item-${order.id}`}
-              >
-                <View className="bg-indigo-50 p-2 rounded-lg mr-3">
-                  <Feather name="package" size={16} color="#6366f1" />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-sm font-medium text-gray-800">#{order.id} - {order.storeName}</Text>
-                  <Text className="text-xs text-gray-500">{order.items} items · {new Date(order.date).toLocaleDateString('en-IN')}</Text>
-                </View>
-                <View className="items-end">
-                  <Text className="text-sm font-semibold text-gray-800">₹{order.total.toLocaleString('en-IN')}</Text>
-                  <View
-                    style={{ backgroundColor: STATUS_COLORS[order.status]?.bg || '#f3f4f6' }}
-                    className="px-2 py-0.5 rounded-full mt-1"
-                  >
-                    <Text
-                      style={{ color: STATUS_COLORS[order.status]?.text || '#374151' }}
-                      className="text-[10px] font-medium"
-                    >
-                      {order.status}
-                    </Text>
-                  </View>
-                </View>
+            {/* Quick Actions */}
+            <View style={[styles.card, { marginBottom: 24 }]}>
+              <Text style={styles.cardTitle}>Quick Actions</Text>
+              <View style={{ flexDirection: 'row', marginTop: 12, marginBottom: 10 }}>
+                <Pressable style={[styles.btn, styles.btnPrimary, { marginRight: 8 }]} onPress={() => goTo('StaffScreen')}>
+                  <Feather name="plus-circle" size={18} color="#fff" /><Text style={styles.btnPrimaryText}>New Order</Text>
+                </Pressable>
+                <Pressable style={[styles.btn, styles.btnOutline, { marginLeft: 8 }]} onPress={() => goTo('StaffOrderScreen')}>
+                  <Feather name="list" size={18} color="#374151" /><Text style={styles.btnOutlineText}>All Orders</Text>
+                </Pressable>
               </View>
-            ))}
-          </View>
-
-          {/* Quick Actions */}
-          <View className="bg-white rounded-2xl p-4 shadow-sm mb-6" data-testid="staff-quick-actions">
-            <Text className="text-base font-semibold text-gray-800 mb-4">Quick Actions</Text>
-
-            <View className="flex-row mb-3">
-              <Pressable
-                className="flex-1 bg-indigo-600 rounded-xl py-4 px-4 flex-row items-center justify-center mr-2"
-                onPress={() => navigation.replace('StaffScreen')}
-                data-testid="new-order-btn"
-              >
-                <Feather name="plus-circle" size={18} color="white" />
-                <Text className="text-white font-semibold ml-2 text-sm">New Order</Text>
-              </Pressable>
-
-              <Pressable
-                className="flex-1 bg-white border border-gray-200 rounded-xl py-4 px-4 flex-row items-center justify-center ml-2"
-                onPress={() => navigation.replace('StaffOrderScreen')}
-                data-testid="view-orders-btn"
-              >
-                <Feather name="list" size={18} color="#374151" />
-                <Text className="text-gray-700 font-semibold ml-2 text-sm">All Orders</Text>
+              <Pressable style={[styles.btn, styles.btnOutline]} onPress={() => goTo('StaffCartScreen')}>
+                <Feather name="shopping-cart" size={18} color="#374151" /><Text style={styles.btnOutlineText}>View Cart</Text>
               </Pressable>
             </View>
+          </ScrollView>
+        </RefreshWrapper>
+      )}
 
-            <Pressable
-              className="bg-white border border-gray-200 rounded-xl py-4 px-5 flex-row items-center justify-center"
-              onPress={() => navigation.replace('StaffCartScreen')}
-              data-testid="go-to-staff-cart-btn"
-            >
-              <Feather name="shopping-cart" size={18} color="#374151" />
-              <Text className="text-gray-700 font-semibold ml-2">View Cart</Text>
-            </Pressable>
-          </View>
-
-          {/* Spacer for bottom nav */}
-          <View className="h-4" />
-        </ScrollView>
-        <Modal transparent visible={showWelcome} animationType="fade">
-          <View className="flex-1 bg-black/40 justify-center items-center">
-            <View className="bg-white w-[80%] rounded-2xl p-6">
-              <Text className="text-xl font-bold text-center">
-                Welcome back 🎉
-              </Text>
-              <Text className="text-center text-gray-600 mt-2">
-                {user?.name}
-              </Text>
-
-              <Pressable
-                onPress={() => setShowWelcome(false)}
-                className="mt-5 bg-indigo-600 py-3 rounded-xl"
-              >
-                <Text className="text-white font-semibold text-center">
-                  Continue
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
-      </RefreshWrapper>
       <BottomTabNavigator />
-      
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  cardTitle: { fontSize: 14, fontWeight: '600', color: '#1f2937', marginBottom: 8 },
+  statCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, minWidth: 150, marginRight: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  statTitle: { color: '#6b7280', fontSize: 12, fontWeight: '500', flex: 1 },
+  statIcon: { padding: 8, borderRadius: 12 },
+  statValue: { fontSize: 24, fontWeight: '700', color: '#111827' },
+  changeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
+  changeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  changeText: { fontSize: 11, fontWeight: '600' },
+  changeLabel: { color: '#9ca3af', fontSize: 10, marginLeft: 4 },
+  customerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  avatarText: { color: '#2563eb', fontWeight: '700', fontSize: 12 },
+  customerName: { fontSize: 12, fontWeight: '500', color: '#1f2937' },
+  customerSub: { fontSize: 10, color: '#6b7280' },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  viewAll: { color: '#2563eb', fontSize: 12, fontWeight: '500' },
+  orderRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  orderIcon: { backgroundColor: '#eef2ff', padding: 8, borderRadius: 8, marginRight: 12 },
+  orderName: { fontSize: 14, fontWeight: '500', color: '#1f2937' },
+  orderSub: { fontSize: 12, color: '#6b7280' },
+  orderTotal: { fontSize: 14, fontWeight: '600', color: '#1f2937' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 20, marginTop: 4 },
+  statusText: { fontSize: 10, fontWeight: '500' },
+  btn: { flex: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  btnPrimary: { backgroundColor: '#4f46e5' },
+  btnPrimaryText: { color: '#fff', fontWeight: '600', marginLeft: 8, fontSize: 14 },
+  btnOutline: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb' },
+  btnOutlineText: { color: '#374151', fontWeight: '600', marginLeft: 8, fontSize: 14 },
+});

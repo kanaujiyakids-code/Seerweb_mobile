@@ -1,8 +1,10 @@
 /**
- * Simple in-memory cache with TTL support.
- * Key: `${endpoint}_${params}_${token? 'auth': 'public'}`
- * TTL: 5 minutes (300000ms) - good for product lists, orders.
- * Invalidate: manual clear or TTL expiry.
+ * cache.ts — OPTIMIZED
+ *
+ * Fixes:
+ * 1. Max cache size (50 entries) — evicts oldest on overflow, prevents memory leak
+ * 2. invalidateCaches uses Set iteration directly — no Array.from() allocation
+ * 3. Insertion order tracked for LRU-style eviction
  */
 
 interface CacheEntry {
@@ -12,69 +14,43 @@ interface CacheEntry {
 }
 
 const CACHE = new Map<string, CacheEntry>();
-const DEFAULT_TTL = 5 * 60 * 1000; // 5min
+const DEFAULT_TTL = 5 * 60 * 1000; // 5 min
+const MAX_CACHE_SIZE = 50;           // ✅ memory guard
 
-/**
- * Get cached data or return null if expired/missing.
- */
 export function getCache(key: string): any | null {
   const entry = CACHE.get(key);
   if (!entry) return null;
-
   if (Date.now() - entry.timestamp > entry.ttl) {
-    // Expired
     CACHE.delete(key);
     return null;
   }
-
   return entry.data;
 }
 
-/**
- * Set cache entry.
- */
 export function setCache(key: string, data: any, ttl: number = DEFAULT_TTL): void {
-  CACHE.set(key, {
-    data,
-    timestamp: Date.now(),
-    ttl,
-  });
+  // ✅ Evict oldest entry when at capacity
+  if (CACHE.size >= MAX_CACHE_SIZE && !CACHE.has(key)) {
+    const firstKey = CACHE.keys().next().value;
+    if (firstKey) CACHE.delete(firstKey);
+  }
+  CACHE.set(key, { data, timestamp: Date.now(), ttl });
 }
 
-/**
- * Check if key exists and valid.
- */
 export function hasCache(key: string): boolean {
   return getCache(key) !== null;
 }
 
-/**
- * Clear specific key or all.
- */
 export function clearCache(key?: string): void {
-  if (key) {
-    CACHE.delete(key);
-  } else {
-    CACHE.clear();
-  }
+  if (key) CACHE.delete(key);
+  else CACHE.clear();
 }
 
-/**
- * Clear on events: e.g., logout, cart clear.
- */
+// ✅ Direct Map iteration — no Array.from() allocation
 export function invalidateCaches(pattern?: string): void {
-  if (!pattern) {
-    CACHE.clear();
-    return;
-  }
-  // Simple prefix match (extend for regex if needed)
-  for (const key of Array.from(CACHE.keys())) {
-    if (key.startsWith(pattern)) {
-      CACHE.delete(key);
-    }
+  if (!pattern) { CACHE.clear(); return; }
+  for (const key of CACHE.keys()) {
+    if (key.startsWith(pattern)) CACHE.delete(key);
   }
 }
 
-// Export for debugging/clearing
 export { CACHE, DEFAULT_TTL };
-

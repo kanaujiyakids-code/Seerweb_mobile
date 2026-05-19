@@ -11,12 +11,11 @@ import { apiUrl } from 'apiurl';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
 
-const TABS = ['all', 'pending', 'approved', 'dispatched', 'delivered'];
+const TABS = ['all', 'pending', 'approved', 'delivered'];
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-200 text-yellow-800 w-20',
   approved: 'bg-blue-200 text-blue-800 w-20',
-  dispatched: 'bg-indigo-200 text-indigo-800 w-20',
   delivered: 'bg-green-200 text-green-800 w-20',
   cancelled: 'bg-red-200 text-red-800 w-20',
 };
@@ -31,7 +30,7 @@ interface OrderItem {
 
 interface Order {
   id: string;
-  retailerId: string; // or number
+  retailerId: string;
   retailerName: string;
   storeName: string;
   total: number;
@@ -127,102 +126,85 @@ const StaffOrderScreen = () => {
     fetchOrders();
   }, [userId]);
 
-  // Fetch Retailers with filtering logic
+  // Fetch Retailers
   useEffect(() => {
-  if (!userId) return;
-  const fetchRetailers = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      if (!token) return;
+    if (!userId) return;
+    const fetchRetailers = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token) return;
 
-      const response = await fetch(`${apiUrl}/staff/get_retailers_by_executive?executive_id=${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await response.json();
-      setRetailers(data);
-    } catch (err) {
-      console.error('Retailers fetch error:', err);
+        const response = await fetch(`${apiUrl}/staff/get_retailers_by_executive?executive_id=${userId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        setRetailers(data);
+      } catch (err) {
+        console.error('Retailers fetch error:', err);
+      }
+    };
+    fetchRetailers();
+  }, [userId]);
+
+  // Staff filter useEffect
+  useEffect(() => {
+    if (!Array.isArray(retailers)) {
+      setFilteredRetailers([]);
+      return;
     }
-  };
-  fetchRetailers();
-}, [userId]);
 
-// 1️⃣ Staff filter useEffect
-useEffect(() => {
-  // ✅ SAFETY CHECK (MOST IMPORTANT)
-  if (!Array.isArray(retailers)) {
-    setFilteredRetailers([]);
-    return;
-  }
+    let filtered = [...retailers];
 
-  let filtered = [...retailers];
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
 
-  // === Date Range Setup ===
-  const today = new Date();
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay() + 1);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
 
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
+    const startOfLastWeek = new Date(startOfWeek);
+    startOfLastWeek.setDate(startOfWeek.getDate() - 7);
+    const endOfLastWeek = new Date(startOfWeek);
+    endOfLastWeek.setDate(startOfWeek.getDate() - 1);
 
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay() + 1);
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 6);
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
-  const startOfLastWeek = new Date(startOfWeek);
-  startOfLastWeek.setDate(startOfWeek.getDate() - 7);
-  const endOfLastWeek = new Date(startOfWeek);
-  endOfLastWeek.setDate(startOfWeek.getDate() - 1);
+    const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
 
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    filtered = filtered.filter((r) => {
+      if (!r.registration_date) return false;
+      const regDate = new Date(r.registration_date);
 
-  const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+      switch (dateFilter) {
+        case 'Today':
+          return regDate.toDateString() === today.toDateString();
+        case 'Yesterday':
+          return regDate.toDateString() === yesterday.toDateString();
+        case 'This Week':
+          return regDate >= startOfWeek && regDate <= endOfWeek;
+        case 'Last Week':
+          return regDate >= startOfLastWeek && regDate <= endOfLastWeek;
+        case 'This Month':
+          return regDate >= startOfMonth && regDate <= endOfMonth;
+        case 'Last Month':
+          return regDate >= startOfLastMonth && regDate <= endOfLastMonth;
+        case 'Custom Period':
+          if (!fromDate || !toDate) return true;
+          const from = new Date(fromDate);
+          const to = new Date(toDate);
+          to.setHours(23, 59, 59, 999);
+          return regDate >= from && regDate <= to;
+        default:
+          return true;
+      }
+    });
 
-  // === Date Filtering Logic ===
-  filtered = filtered.filter((r) => {
-    if (!r.registration_date) return false;
-
-    const regDate = new Date(r.registration_date);
-
-    switch (dateFilter) {
-      case 'Today':
-        return regDate.toDateString() === today.toDateString();
-
-      case 'Yesterday':
-        return regDate.toDateString() === yesterday.toDateString();
-
-      case 'This Week':
-        return regDate >= startOfWeek && regDate <= endOfWeek;
-
-      case 'Last Week':
-        return regDate >= startOfLastWeek && regDate <= endOfLastWeek;
-
-      case 'This Month':
-        return regDate >= startOfMonth && regDate <= endOfMonth;
-
-      case 'Last Month':
-        return regDate >= startOfLastMonth && regDate <= endOfLastMonth;
-
-      case 'Custom Period':
-        if (!fromDate || !toDate) return true;
-        const from = new Date(fromDate);
-        const to = new Date(toDate);
-        to.setHours(23, 59, 59, 999);
-        return regDate >= from && regDate <= to;
-
-      default:
-        return true;
-    }
-  });
-
-  // ✅ THIS LINE WAS MISSING (VERY IMPORTANT)
-  setFilteredRetailers(filtered);
-
-}, [dateFilter, fromDate, toDate, retailers]);
-
-
-
+    setFilteredRetailers(filtered);
+  }, [dateFilter, fromDate, toDate, retailers]);
 
   // Date filter for orders
   const applyDateFilter = (orderDate: Date) => {
@@ -263,7 +245,6 @@ useEffect(() => {
     }
   };
 
-  // Filtered & searched orders
   const filteredOrders = useMemo(() => {
     return orders
       .filter((o) => (activeTab === 'all' ? true : o.status === activeTab))
@@ -277,22 +258,16 @@ useEffect(() => {
       .filter((o) => applyDateFilter(new Date(o.createdAt)))
       .filter((o) =>
         reportRetailerId === 'all' ? true : String(o.retailerId) === reportRetailerId
-      ); // ✅ use o.retailerId
+      );
   }, [orders, activeTab, searchText, dateFilter, fromDate, toDate, reportRetailerId]);
 
-
-  // ---- FINAL & CORRECT SORT + PAGINATION LOGIC ----
-
-  // Handle "All" safely
   const isAll = itemsPerPage === 'All';
   const perPage = isAll ? filteredOrders.length : Number(itemsPerPage);
 
-  // 1️⃣ Sort filtered orders by createdAt in DESCENDING ORDER
   const sortedOrders = [...filteredOrders].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  // 2️⃣ Pagination AFTER sorting
   const indexOfLastItem = currentPage * perPage;
   const indexOfFirstItem = indexOfLastItem - perPage;
 
@@ -300,7 +275,6 @@ useEffect(() => {
     ? sortedOrders
     : sortedOrders.slice(indexOfFirstItem, indexOfLastItem);
 
-  // 3️⃣ Total pages calculated correctly
   const totalPages = isAll
     ? 1
     : Math.ceil(filteredOrders.length / perPage);
@@ -400,7 +374,7 @@ useEffect(() => {
             <Pressable
               onPress={() => {
                 setShowCustomerDropdown(!showCustomerDropdown);
-                setShowLimitDropdown(false); // close other dropdown
+                setShowLimitDropdown(false);
               }}
               className="bg-blue-400 px-4 py-2 rounded-lg flex-row justify-between items-center"
             >
@@ -463,7 +437,6 @@ useEffect(() => {
 
         {/* Orders Table */}
         <View className="relative">
-          {/* Pagination Dropdown */}
           <Pressable
             onPress={() => setShowLimitDropdown(!showLimitDropdown)}
             className="bg-blue-400 mb-2 px-4 py-2 rounded-lg flex-row justify-between items-center w-20"
@@ -528,7 +501,6 @@ useEffect(() => {
                 <Text className="w-[100px] font-semibold text-center text-gray-600">View</Text>
               </View>
 
-              {/* SORT ORDERS BY DATE DESCENDING */}
               {paginatedOrders.map((order, index) => {
                 const formattedDate = new Date(order.createdAt).toLocaleDateString('en-US', {
                   year: 'numeric',
@@ -618,9 +590,11 @@ useEffect(() => {
                 <View className="mb-4">
                   <Text className="font-semibold mb-2">Items:</Text>
                   {selectedOrder.items.map((item, index) => (
-                    <View key={index} className="flex-row justify-between mb-1">
-                      <Text className="text-sm text-gray-800">{item.product.name} x {item.quantity}</Text>
-                      <Text className="text-sm text-gray-800">
+                    <View key={index} className="flex-row justify-between items-start mb-2">
+                      <Text className="text-sm text-gray-800 flex-1 mr-3" style={{ flexShrink: 1 }}>
+                        {item.product.name} x {item.quantity}
+                      </Text>
+                      <Text className="text-sm text-gray-800 font-medium" style={{ flexShrink: 0 }}>
                         ₹ {(item.product.price * item.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                     </View>

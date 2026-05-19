@@ -1,77 +1,117 @@
-import React, { useEffect, useState } from 'react';
+/**
+ * BottomTabNavigator — FINAL FIX for screen overlap
+ *
+ * WHY screens were overlapping:
+ *   navigation.navigate() in a NativeStack PUSHES the new screen ON TOP of
+ *   the old one. Both screens exist in the stack simultaneously. During the
+ *   slide animation both are rendered = overlap/flicker bug seen in screenshot.
+ *
+ * WHY replace() was slow:
+ *   replace() unmounts the old screen and mounts a brand new one, triggering
+ *   useEffect → AsyncStorage → API fetch from scratch = blank screen + delay.
+ *
+ * THE CORRECT FIX — CommonActions.reset():
+ *   Resets the entire stack to exactly ONE screen (the target tab).
+ *   - Old screen is gone immediately (no overlap)
+ *   - No stacking, no animation conflict
+ *   - Clean instant transition
+ *   - Remount cost eliminated by screenDataCache (screens load from memory)
+ *
+ * screenDataCache (exported):
+ *   Each screen saves its fetched data here on first load.
+ *   On remount it reads from cache instantly and renders immediately,
+ *   then optionally refreshes in the background.
+ */
+import React, { useEffect, useState, useCallback, memo } from 'react';
 import { View, Text, Pressable, Platform } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types/navigation';
-import { EventRegister } from 'react-native-event-listeners';
 import { Feather, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
 
+// ── Module-level caches (persist across screen remounts) ──────────────────────
+let _cachedRole: string | null = null;
+
+/**
+ * screenDataCache — import this in any screen to avoid re-fetching on tab switch.
+ *
+ * Usage in a screen:
+ *   import { screenDataCache } from 'components/BottomTabNavigator';
+ *
+ *   // On load: check cache first
+ *   const cached = screenDataCache['StaffDashboard'];
+ *   if (cached) { setOrders(cached.orders); setRetailers(cached.retailers); }
+ *
+ *   // After fetch: save to cache
+ *   screenDataCache['StaffDashboard'] = { orders, retailers };
+ */
+export const screenDataCache: Record<string, any> = {};
+
+export function clearRoleCache() {
+  _cachedRole = null;
+}
+
+export function clearScreenCache(screen?: string) {
+  if (screen) delete screenDataCache[screen];
+  else Object.keys(screenDataCache).forEach(k => delete screenDataCache[k]);
+}
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 interface TabItem {
   name: string;
   route: keyof RootStackParamList;
-  icon: (active: boolean) => React.ReactNode;
+  icon: (active: boolean, ac: string, ic: string) => React.ReactNode;
   badge?: number;
 }
 
-export default function BottomTabNavigator() {
+// ── Component ──────────────────────────────────────────────────────────────────
+function BottomTabNavigator() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute();
   const currentRoute = route.name;
   const { colors } = useTheme();
-
-  const [role, setRole] = useState<string | null>(null);
   const { cartCount } = useCart();
+  const [role, setRole] = useState<string | null>(_cachedRole);
 
+  // Read role only once per session
   useEffect(() => {
-    const loadRole = async () => {
-      const userStr = await AsyncStorage.getItem('user');
-      if (userStr) {
-        const user = JSON.parse(userStr);
-        setRole(user?.role);
-      }
-    };
-    loadRole();
-  }, []);
-
-  useEffect(() => {
-    const listener = EventRegister.addEventListener('cartChanged', (count) => {
-      if (typeof count === 'number') {
-        // Context already emits, badge uses context cartCount
+    if (_cachedRole) return;
+    AsyncStorage.getItem('user').then((s) => {
+      if (s) {
+        const r = JSON.parse(s)?.role ?? null;
+        _cachedRole = r;
+        setRole(r);
       }
     });
-    return () => {
-      EventRegister.removeEventListener(listener as string);
-    };
   }, []);
 
   const activeColor = colors.primary;
   const inactiveColor = colors.textSecondary;
 
-  // Define tabs based on role
   const retailerTabs: TabItem[] = [
     {
       name: 'Dashboard',
       route: 'RetailerDashboard',
-      icon: (active) => <MaterialIcons name="dashboard" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <MaterialIcons name="dashboard" size={24} color={a ? ac : ic} />,
     },
     {
       name: 'Products',
       route: 'RetailerHome',
-      icon: (active) => <Ionicons name="grid-outline" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <Ionicons name="grid-outline" size={24} color={a ? ac : ic} />,
     },
     {
       name: 'Cart',
       route: 'Cart',
-      icon: (active) => <Feather name="shopping-cart" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <Feather name="shopping-cart" size={24} color={a ? ac : ic} />,
       badge: cartCount,
     },
     {
       name: 'Orders',
       route: 'RetailerOrderScreen',
-      icon: (active) => <Feather name="package" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <Feather name="package" size={24} color={a ? ac : ic} />,
     },
   ];
 
@@ -79,34 +119,46 @@ export default function BottomTabNavigator() {
     {
       name: 'Dashboard',
       route: 'StaffDashboard',
-      icon: (active) => <MaterialIcons name="dashboard" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <MaterialIcons name="dashboard" size={24} color={a ? ac : ic} />,
     },
     {
       name: 'Customers',
       route: 'StaffScreen',
-      icon: (active) => <Feather name="users" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <Feather name="users" size={24} color={a ? ac : ic} />,
     },
     {
       name: 'Cart',
       route: 'StaffCartScreen',
-      icon: (active) => <Feather name="shopping-cart" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <Feather name="shopping-cart" size={24} color={a ? ac : ic} />,
       badge: cartCount,
     },
     {
       name: 'Orders',
       route: 'StaffOrderScreen',
-      icon: (active) => <Feather name="package" size={24} color={active ? activeColor : inactiveColor} />,
+      icon: (a, ac, ic) => <Feather name="package" size={24} color={a ? ac : ic} />,
     },
   ];
 
   const tabs = role === 'retailer' ? retailerTabs : role === 'staff' ? staffTabs : [];
 
-  if (!role || (role !== 'retailer' && role !== 'staff')) {
-    return null;
-  }
+  // ✅ THE FIX: reset() clears the stack to one screen — zero overlap possible
+  const handleTabPress = useCallback(
+    (tabRoute: keyof RootStackParamList) => {
+      if (currentRoute === tabRoute) return; // already here, do nothing
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: tabRoute }],
+        })
+      );
+    },
+    [navigation, currentRoute]
+  );
+
+  if (!role || (role !== 'retailer' && role !== 'staff')) return null;
 
   return (
-    <View 
+    <View
       style={{
         position: 'absolute',
         bottom: 0,
@@ -119,33 +171,56 @@ export default function BottomTabNavigator() {
         paddingTop: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.08,
         shadowRadius: 4,
         elevation: 10,
       }}
-      data-testid="bottom-tab-navigator"
     >
-      <View className="flex-row justify-around items-center">
+      <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' }}>
         {tabs.map((tab) => {
           const isActive = currentRoute === tab.route;
           return (
             <Pressable
               key={tab.route}
-              onPress={() => navigation.replace(tab.route)}
-              className="items-center justify-center py-1 px-2"
-              data-testid={`tab-${tab.name.toLowerCase()}`}
+              onPress={() => handleTabPress(tab.route)}
+              style={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 4,
+                paddingHorizontal: 8,
+                minWidth: 60,
+              }}
             >
-              <View className="relative">
-                {tab.icon(isActive)}
+              <View style={{ position: 'relative' }}>
+                {tab.icon(isActive, activeColor, inactiveColor)}
                 {tab.badge !== undefined && tab.badge > 0 ? (
-                  <View className="absolute -top-1 -right-2 bg-red-500 rounded-full min-w-[18px] h-[18px] items-center justify-center">
-                    <Text className="text-white text-[10px] font-bold">{tab.badge > 99 ? '99+' : tab.badge}</Text>
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -8,
+                      backgroundColor: '#ef4444',
+                      borderRadius: 9,
+                      minWidth: 18,
+                      height: 18,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingHorizontal: 3,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
+                      {tab.badge > 99 ? '99+' : tab.badge}
+                    </Text>
                   </View>
                 ) : null}
               </View>
-              <Text 
-                style={{ color: isActive ? colors.primary : colors.textSecondary }}
-                className="text-[10px] mt-1 font-medium"
+              <Text
+                style={{
+                  color: isActive ? activeColor : inactiveColor,
+                  fontSize: 10,
+                  marginTop: 4,
+                  fontWeight: isActive ? '700' : '500',
+                }}
               >
                 {tab.name}
               </Text>
@@ -156,3 +231,5 @@ export default function BottomTabNavigator() {
     </View>
   );
 }
+
+export default memo(BottomTabNavigator);
