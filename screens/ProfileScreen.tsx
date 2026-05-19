@@ -507,6 +507,7 @@ export default function ProfileScreen() {
             style={{ backgroundColor: colors.card, borderColor: colors.border }} 
             className="rounded-2xl border overflow-hidden"
           >
+            {/*
             <Pressable 
               className="flex-row items-center p-4 border-b"
               style={{ borderColor: colors.border }}
@@ -522,6 +523,7 @@ export default function ProfileScreen() {
               </View>
               <Feather name="external-link" size={18} color={colors.textSecondary} />
             </Pressable>
+              */}
 
             <Pressable 
               className="flex-row items-center p-4 border-b"
@@ -534,11 +536,12 @@ export default function ProfileScreen() {
               </View>
               <View className="flex-1">
                 <Text style={{ color: colors.text }} className="font-medium">Call Support</Text>
-                <Text style={{ color: colors.textSecondary }} className="text-sm">+91 98765 43210</Text>
+                <Text style={{ color: colors.textSecondary }} className="text-sm">+91 8108022420</Text>
               </View>
               <Feather name="external-link" size={18} color={colors.textSecondary} />
             </Pressable>
 
+            {/*  
             <Pressable 
               className="flex-row items-center p-4"
               onPress={() => Linking.openURL('https://seerweb.com/faq')}
@@ -553,6 +556,7 @@ export default function ProfileScreen() {
               </View>
               <Feather name="external-link" size={18} color={colors.textSecondary} />
             </Pressable>
+            */}
           </View>
         </View>
 
@@ -575,6 +579,7 @@ export default function ProfileScreen() {
               </View>
             </View>
 
+          {/*
             <Pressable 
               className="flex-row items-center p-4"
               onPress={() => Linking.openURL('https://seerweb.com/terms')}
@@ -588,6 +593,8 @@ export default function ProfileScreen() {
               </View>
               <Feather name="external-link" size={18} color={colors.textSecondary} />
             </Pressable>
+          */}
+          
           </View>
         </View>
 

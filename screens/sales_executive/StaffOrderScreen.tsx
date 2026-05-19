@@ -32,6 +32,7 @@ interface Order {
   id: string;
   retailerId: string;
   retailerName: string;
+  retailerStoreName: string;
   storeName: string;
   total: number;
   status: string;
