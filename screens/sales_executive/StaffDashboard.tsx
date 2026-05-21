@@ -20,7 +20,7 @@ import BottomTabNavigator, { screenDataCache } from '../../components/BottomTabN
 import Svg, { Path, G, Text as SvgText } from 'react-native-svg';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { apiGet } from '@/lib/services/api';
+import { apiGet } from '../../src/lib/services/api';
 import Navbar from '../../components/Navbar';
 
 const CACHE_KEY = 'StaffDashboard';
@@ -136,7 +136,7 @@ export default function StaffDashboard() {
       const userStr = await AsyncStorage.getItem('user');
       if (!userStr) { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Login' }] })); return; }
       const userData = JSON.parse(userStr);
-      if (userData.role !== 'staff') { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'RetailerDashboard' }] })); return; }
+      if (userData.role !== 'staff') { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Login' }] })); return; }
       setUser(userData);
       screenDataCache[CACHE_KEY] = { ...screenDataCache[CACHE_KEY], user: userData };
 

@@ -198,7 +198,7 @@ export default function StaffScreen() {
 
         const userObj = JSON.parse(userData);
         setUser(userObj);
-        if (userObj.role !== 'staff') { navigation.navigate('RetailerHome' as never); return; }
+        if (userObj.role !== 'staff') { navigation.navigate('Login' as never); return; }
 
         const [retData, prodData] = await Promise.all([
           cachedGet(`/staff/get_retailers_by_executive?executiveid=${userObj.id}`, token),

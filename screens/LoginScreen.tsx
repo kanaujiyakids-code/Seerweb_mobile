@@ -18,6 +18,7 @@ import { apiUrl } from 'apiurl';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import RefreshWrapper from 'components/RefreshWrapper';
+import { getErrorMessage, getHomeRouteForRole } from '../src/lib/app';
 
 export default function LoginScreen() {
   const navigation =
@@ -31,12 +32,14 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (loading) return;
+    if (!username.trim() || !password.trim()) {
+      setErrorMessage('Enter both username and password.');
+      return;
+    }
 
     try {
       setLoading(true);
       setErrorMessage('');
-
-      console.log('Calling API:', `${apiUrl}/login`);
 
       const response = await fetch(`${apiUrl}/login`, {
         method: 'POST',
@@ -49,42 +52,30 @@ export default function LoginScreen() {
         }),
       });
 
-      console.log('Response status:', response.status);
-
       const data = await response.json();
 
-      console.log('Response data:', data);
-
       if (response.ok && data.message === 'Login successful') {
-        await AsyncStorage.setItem('token', data.token);
-        await AsyncStorage.setItem('user', JSON.stringify(data.user));
+        const route = getHomeRouteForRole(data?.user?.role);
 
-        if (data.user.role === 'dealer') {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'DealerDashboard' }],
-          });
-        } else if (data.user.role === 'retailer') {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'RetailerDashboard' }],
-          });
-        } else if (data.user.role === 'staff') {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'StaffDashboard' }],
-          });
-        } else {
-          setErrorMessage('Invalid role.');
+        if (!route) {
+          setErrorMessage('This account role is not supported in the current mobile app.');
+          return;
         }
+
+        await AsyncStorage.multiSet([
+          ['token', data.token],
+          ['user', JSON.stringify(data.user)],
+        ]);
+
+        navigation.reset({
+          index: 0,
+          routes: [{ name: route }],
+        });
       } else {
-        setErrorMessage(
-          data.message || 'Invalid username or password.'
-        );
+        setErrorMessage(data.message || 'Invalid username or password.');
       }
     } catch (error) {
-      console.log('Login error:', error);
-      setErrorMessage('Something went wrong. Please try again.');
+      setErrorMessage(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -208,7 +199,7 @@ export default function LoginScreen() {
               className="mt-4 w-full items-center"
             >
               <Text className="px-4 py-2 text-center rounded-md w-[90%] text-gray-700">
-                Don't have your login details? Please contact your dealer.
+                Don&apos;t have your login details? Please contact your dealer.
               </Text>
             </Animated.View>
           </View>

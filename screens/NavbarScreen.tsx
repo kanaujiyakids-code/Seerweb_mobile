@@ -193,7 +193,7 @@ export default function NavbarScreen() {
                   Confirm Logout
                 </Text>
                 <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20 }}>
-                  Are you sure you want to logout?{'\n'}You'll need to login again to access your account.
+                  Are you sure you want to logout?{'\n'}You&apos;ll need to login again to access your account.
                 </Text>
               </View>
 

@@ -31,6 +31,8 @@ import type { RootStackParamList } from '../types/navigation';
 import { Feather, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { safeJsonParse } from '../src/lib/app';
 
 // ── Module-level caches (persist across screen remounts) ──────────────────────
 let _cachedRole: string | null = null;
@@ -81,7 +83,7 @@ function BottomTabNavigator() {
     if (_cachedRole) return;
     AsyncStorage.getItem('user').then((s) => {
       if (s) {
-        const r = JSON.parse(s)?.role ?? null;
+        const r = safeJsonParse<{ role?: string }>(s, {})?.role ?? null;
         _cachedRole = r;
         setRole(r);
       }
@@ -180,56 +182,99 @@ function BottomTabNavigator() {
         {tabs.map((tab) => {
           const isActive = currentRoute === tab.route;
           return (
-            <Pressable
+            <TabButton
               key={tab.route}
+              isActive={isActive}
+              activeColor={activeColor}
+              inactiveColor={inactiveColor}
+              badge={tab.badge}
+              label={tab.name}
               onPress={() => handleTabPress(tab.route)}
-              style={{
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: 4,
-                paddingHorizontal: 8,
-                minWidth: 60,
-              }}
-            >
-              <View style={{ position: 'relative' }}>
-                {tab.icon(isActive, activeColor, inactiveColor)}
-                {tab.badge !== undefined && tab.badge > 0 ? (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: -4,
-                      right: -8,
-                      backgroundColor: '#ef4444',
-                      borderRadius: 9,
-                      minWidth: 18,
-                      height: 18,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      paddingHorizontal: 3,
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
-                      {tab.badge > 99 ? '99+' : tab.badge}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text
-                style={{
-                  color: isActive ? activeColor : inactiveColor,
-                  fontSize: 10,
-                  marginTop: 4,
-                  fontWeight: isActive ? '700' : '500',
-                }}
-              >
-                {tab.name}
-              </Text>
-            </Pressable>
+              icon={tab.icon}
+            />
           );
         })}
       </View>
     </View>
   );
 }
+
+const TabButton = memo(function TabButton({
+  isActive,
+  activeColor,
+  inactiveColor,
+  badge,
+  label,
+  onPress,
+  icon,
+}: {
+  isActive: boolean;
+  activeColor: string;
+  inactiveColor: string;
+  badge?: number;
+  label: string;
+  onPress: () => void;
+  icon: (active: boolean, ac: string, ic: string) => React.ReactNode;
+}) {
+  const scale = useSharedValue(isActive ? 1 : 0.98);
+
+  useEffect(() => {
+    scale.value = withTiming(isActive ? 1 : 0.98, { duration: 180 });
+  }, [isActive, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        minWidth: 60,
+      }}
+    >
+      <Animated.View style={animatedStyle}>
+        <View style={{ position: 'relative', alignItems: 'center' }}>
+          {icon(isActive, activeColor, inactiveColor)}
+          {badge !== undefined && badge > 0 ? (
+            <View
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -8,
+                backgroundColor: '#ef4444',
+                borderRadius: 9,
+                minWidth: 18,
+                height: 18,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 3,
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
+                {badge > 99 ? '99+' : badge}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <Text
+          style={{
+            color: isActive ? activeColor : inactiveColor,
+            fontSize: 10,
+            marginTop: 4,
+            fontWeight: isActive ? '700' : '500',
+            textAlign: 'center',
+          }}
+        >
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+});
 
 export default memo(BottomTabNavigator);

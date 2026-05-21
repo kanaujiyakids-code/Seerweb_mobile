@@ -1,12 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  ActivityIndicator,
-  Alert,
-  Modal,
+  View, Text, ScrollView, Pressable,
+  ActivityIndicator, Alert, Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomTabNavigator from 'components/BottomTabNavigator';
@@ -41,27 +36,20 @@ interface Retailer {
 }
 
 export default function StaffCartScreen() {
-  // ── CartContext — single source of truth for cart items ──────────────────
   const { cart, updateCartQuantity, removeFromCart, clearCart } = useCart();
-
   const [productDetails, setProductDetails] = useState<Record<number, ProductDetail>>({});
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedRetailer, setSelectedRetailer] = useState<Retailer | null>(null);
-
-  // Remove item confirmation modal state
   const [removeModalVisible, setRemoveModalVisible] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<{
-    productId: number;
-    variantId: number;
-    name: string;
+    productId: number; variantId: number; name: string;
   } | null>(null);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  // ── Boot: load user + retailer + product metadata ─────────────────────────
   useEffect(() => {
     const boot = async () => {
       try {
@@ -69,17 +57,10 @@ export default function StaffCartScreen() {
           AsyncStorage.getItem('user'),
           AsyncStorage.getItem('selectedRetailer'),
         ]);
-
         if (!userData) { setLoading(false); return; }
-
         const parsedUser = JSON.parse(userData);
         setUser(parsedUser);
-
-        if (retailerData) {
-          setSelectedRetailer(JSON.parse(retailerData));
-        }
-
-        // Fetch product details for display (name, brand, model)
+        if (retailerData) setSelectedRetailer(JSON.parse(retailerData));
         await fetchProductDetails(parsedUser.dealer_id);
       } catch (error) {
         console.error('StaffCartScreen boot error:', error);
@@ -87,7 +68,6 @@ export default function StaffCartScreen() {
         setLoading(false);
       }
     };
-
     boot();
   }, []);
 
@@ -95,91 +75,53 @@ export default function StaffCartScreen() {
     try {
       const res = await fetch(`${apiUrl}/products?dealerid=${dealerId}`);
       const raw = await res.json();
-
-      // API may return array directly OR { products: [...] }
-      const list: ProductDetail[] = Array.isArray(raw)
-        ? raw
-        : Array.isArray(raw?.products)
-        ? raw.products
-        : [];
-
-      // Build a lookup map by product id for O(1) access
+      const list: ProductDetail[] = Array.isArray(raw) ? raw : Array.isArray(raw?.products) ? raw.products : [];
       const map: Record<number, ProductDetail> = {};
       list.forEach((p) => { map[Number(p.id)] = p; });
       setProductDetails(map);
     } catch (error) {
       console.error('Failed to fetch product details:', error);
-      // Don't block the cart — items still show with prices from context
     }
   };
 
-  // ── Cart rows: join context cart with product metadata ────────────────────
-  // CRITICAL: Render from `cart` (CartContext) directly.
-  // If product details haven't loaded, show item using price from context.
   const cartRows = useMemo(() => {
     return cart.map((item) => {
       const detail = productDetails[item.productId];
-      const variantLabel =
-        item.size || item.color
-          ? [item.size, item.color].filter(Boolean).join(' / ')
-          : null;
-
+      const variantLabel = item.size || item.color
+        ? [item.size, item.color].filter(Boolean).join(' / ') : null;
       return {
         key: `${item.productId}-${item.variantId}`,
         productId: item.productId,
         variantId: item.variantId,
-        // Fall back gracefully if metadata not yet loaded
         name: detail?.name ?? `Product #${item.productId}`,
         brand: detail?.brand ?? '',
         model: detail?.model ?? '',
         variantLabel,
-        price: item.price,      // always available from CartContext
+        price: item.price,
         quantity: item.quantity,
       };
     });
   }, [cart, productDetails]);
 
-  const totalItems = useMemo(
-    () => cart.reduce((sum, c) => sum + c.quantity, 0),
-    [cart]
-  );
+  const totalItems = useMemo(() => cart.reduce((s, c) => s + c.quantity, 0), [cart]);
+  const totalPrice = useMemo(() => cart.reduce((s, c) => s + c.price * c.quantity, 0), [cart]);
 
-  const totalPrice = useMemo(
-    () => cart.reduce((sum, c) => sum + c.price * c.quantity, 0),
-    [cart]
-  );
+  const handleIncrement = useCallback((productId: number, variantId: number, currentQty: number) => {
+    updateCartQuantity(productId, variantId, Math.min(currentQty + 1, 999));
+  }, [updateCartQuantity]);
 
-  // ── Cart actions ──────────────────────────────────────────────────────────
-  const handleIncrement = useCallback(
-    (productId: number, variantId: number, currentQty: number) => {
-      updateCartQuantity(productId, variantId, Math.min(currentQty + 1, 999));
-    },
-    [updateCartQuantity]
-  );
+  const handleDecrement = useCallback((productId: number, variantId: number, currentQty: number) => {
+    if (currentQty <= 1) removeFromCart(productId, variantId);
+    else updateCartQuantity(productId, variantId, currentQty - 1);
+  }, [updateCartQuantity, removeFromCart]);
 
-  const handleDecrement = useCallback(
-    (productId: number, variantId: number, currentQty: number) => {
-      if (currentQty <= 1) {
-        removeFromCart(productId, variantId);
-      } else {
-        updateCartQuantity(productId, variantId, currentQty - 1);
-      }
-    },
-    [updateCartQuantity, removeFromCart]
-  );
-
-  const handleRemoveConfirm = useCallback(
-    (productId: number, variantId: number, name: string) => {
-      setPendingRemove({ productId, variantId, name });
-      setRemoveModalVisible(true);
-    },
-    []
-  );
+  const handleRemoveConfirm = useCallback((productId: number, variantId: number, name: string) => {
+    setPendingRemove({ productId, variantId, name });
+    setRemoveModalVisible(true);
+  }, []);
 
   const confirmRemove = useCallback(() => {
-    if (pendingRemove) {
-      removeFromCart(pendingRemove.productId, pendingRemove.variantId);
-    }
+    if (pendingRemove) removeFromCart(pendingRemove.productId, pendingRemove.variantId);
     setRemoveModalVisible(false);
     setPendingRemove(null);
   }, [pendingRemove, removeFromCart]);
@@ -189,14 +131,15 @@ export default function StaffCartScreen() {
     setPendingRemove(null);
   }, []);
 
-  // ── Order submission ──────────────────────────────────────────────────────
   const handleSubmitOrder = async () => {
     if (!user || cart.length === 0) return;
-
+    if (!selectedRetailer) {
+      Alert.alert('Select customer', 'Choose a customer before submitting the order.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const token = await AsyncStorage.getItem('token');
-
       const orderPayload = {
         retailerId: selectedRetailer?.id,
         retailerName: selectedRetailer?.store_name,
@@ -212,22 +155,16 @@ export default function StaffCartScreen() {
           price: c.price,
         })),
       };
-
       const res = await fetch(`${apiUrl}/orders`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(orderPayload),
       });
-
       if (!res.ok) {
         const body = await res.text();
         console.error('Order failed:', res.status, body);
         throw new Error('Failed to submit order');
       }
-
       clearCart();
       setIsModalVisible(false);
       Alert.alert('Success', 'Order submitted successfully!');
@@ -240,22 +177,28 @@ export default function StaffCartScreen() {
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView className="flex-1" edges={['top']}>
+    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
       <Navbar user={user?.name} />
 
       <ScrollView
-        className="flex-1 px-4 pt-4"
+        style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        <Text className="text-2xl font-bold mb-2">Your Cart</Text>
+        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#111827', marginBottom: 8 }}>
+          Your Cart
+        </Text>
 
         {/* Selected retailer banner */}
         {selectedRetailer && (
-          <View className="bg-blue-50 rounded-xl p-3 mb-4 flex-row items-center">
+          <View style={{
+            backgroundColor: '#eff6ff', borderRadius: 12,
+            padding: 12, marginBottom: 16,
+            flexDirection: 'row', alignItems: 'center',
+            borderWidth: 0.5, borderColor: '#bfdbfe',
+          }}>
             <Feather name="user" size={16} color="#3b82f6" />
-            <Text className="ml-2 text-blue-700 font-medium">
+            <Text style={{ marginLeft: 8, color: '#1d4ed8', fontWeight: '500', flex: 1 }}>
               {selectedRetailer.store_name}
             </Text>
           </View>
@@ -264,78 +207,71 @@ export default function StaffCartScreen() {
         {loading ? (
           <ActivityIndicator size="large" color="#5b74f1" style={{ marginTop: 40 }} />
         ) : cart.length === 0 ? (
-          // Check cart (from context) NOT cartRows, so empty state only shows
-          // when context truly has no items (not when product metadata is missing)
-          <View className="items-center justify-center mt-20">
-            <Feather name="shopping-cart" size={48} color="#d1d5db" />
-            <Text className="text-center text-gray-400 mt-4 text-base">
+          <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 80 }}>
+            <Feather name="shopping-cart" size={52} color="#d1d5db" />
+            <Text style={{ textAlign: 'center', color: '#9ca3af', marginTop: 16, fontSize: 16 }}>
               Your cart is empty.
             </Text>
-            <Text className="text-center text-gray-400 text-sm mt-1">
+            <Text style={{ textAlign: 'center', color: '#9ca3af', fontSize: 14, marginTop: 4 }}>
               Go to Customers tab to add products.
             </Text>
           </View>
         ) : (
           <>
             {cartRows.map((row) => (
-              <View key={row.key} className="bg-white p-4 mb-4 rounded-xl shadow">
-                <Text className="text-base font-semibold">{row.name}</Text>
+              <View key={row.key} style={{
+                backgroundColor: '#fff', padding: 16, marginBottom: 16,
+                borderRadius: 14,
+                shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.08, shadowRadius: 4, elevation: 2,
+              }}>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827' }}>{row.name}</Text>
+
                 {(row.brand || row.model) && (
-                  <Text className="text-gray-500 text-sm">
+                  <Text style={{ color: '#6b7280', fontSize: 14, marginTop: 2 }}>
                     {[row.brand, row.model].filter(Boolean).join(' | ')}
                   </Text>
                 )}
+
                 {row.variantLabel && (
-                  <Text className="text-xs text-indigo-500 mt-0.5">
+                  <Text style={{ fontSize: 12, color: '#6366f1', marginTop: 2 }}>
                     {row.variantLabel}
                   </Text>
                 )}
 
-                <View className="flex-row justify-between items-center mt-3">
-                  <Text className="text-blue-600 text-lg font-bold">
-                    ₹{' '}
-                    {row.price.toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+                  <Text style={{ color: '#2563eb', fontSize: 18, fontWeight: 'bold' }}>
+                    ₹ {row.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Text>
 
-                  <View className="flex-row items-center">
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Pressable
-                      onPress={() =>
-                        handleDecrement(row.productId, row.variantId, row.quantity)
-                      }
+                      onPress={() => handleDecrement(row.productId, row.variantId, row.quantity)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <MinusCircle size={24} color="#ef4444" />
+                      <MinusCircle size={26} color="#ef4444" />
                     </Pressable>
-                    <Text className="mx-4 text-base font-semibold">{row.quantity}</Text>
+                    <Text style={{ marginHorizontal: 16, fontSize: 16, fontWeight: '600', color: '#111827', minWidth: 20, textAlign: 'center' }}>
+                      {row.quantity}
+                    </Text>
                     <Pressable
-                      onPress={() =>
-                        handleIncrement(row.productId, row.variantId, row.quantity)
-                      }
+                      onPress={() => handleIncrement(row.productId, row.variantId, row.quantity)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <PlusCircle size={24} color="#10b981" />
+                      <PlusCircle size={26} color="#10b981" />
                     </Pressable>
                   </View>
 
                   <Pressable
-                    onPress={() =>
-                      handleRemoveConfirm(row.productId, row.variantId, row.name)
-                    }
+                    onPress={() => handleRemoveConfirm(row.productId, row.variantId, row.name)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Feather name="trash-2" size={20} color="#ef4444" />
+                    <Feather name="trash-2" size={22} color="#ef4444" />
                   </Pressable>
                 </View>
 
-                <Text className="text-right text-sm mt-2 text-gray-600 font-medium">
-                  Subtotal: ₹{' '}
-                  {(row.price * row.quantity).toLocaleString('en-IN', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                <Text style={{ textAlign: 'right', fontSize: 13, marginTop: 8, color: '#4b5563', fontWeight: '500' }}>
+                  Subtotal: ₹ {(row.price * row.quantity).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
             ))}
@@ -351,30 +287,31 @@ export default function StaffCartScreen() {
 
       {/* Confirm Order Modal */}
       <Modal visible={isModalVisible} transparent animationType="fade">
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white p-5 rounded-xl w-80 shadow-lg">
-            <Text className="text-lg font-bold mb-1 text-center">Confirm Order</Text>
-            <Text className="text-gray-500 text-center text-sm mb-4">
-              {totalItems} item{totalItems !== 1 ? 's' : ''} · ₹
-              {totalPrice.toLocaleString('en-IN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{
+            backgroundColor: '#fff', padding: 24, borderRadius: 16, width: 320,
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 8,
+          }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 4, color: '#111827' }}>
+              Confirm Order
             </Text>
-            <View className="flex-row justify-between">
+            <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 14, marginBottom: 20 }}>
+              {totalItems} item{totalItems !== 1 ? 's' : ''} · ₹{totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Pressable
                 onPress={() => setIsModalVisible(false)}
-                className="bg-gray-200 px-5 py-2 rounded-lg"
+                style={{ backgroundColor: '#e5e7eb', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 }}
               >
-                <Text className="text-gray-800 font-semibold">Cancel</Text>
+                <Text style={{ color: '#1f2937', fontWeight: '600' }}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={handleSubmitOrder}
                 disabled={isSubmitting}
-                className="bg-indigo-500 px-5 py-2 rounded-lg"
+                style={{ backgroundColor: '#6366f1', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 }}
               >
-                <Text className="text-white font-semibold">
-                  {isSubmitting ? 'Submitting...' : 'Confirm'}
+                <Text style={{ color: '#fff', fontWeight: '600' }}>
+                  {isSubmitting ? 'Submitting…' : 'Confirm'}
                 </Text>
               </Pressable>
             </View>
@@ -382,26 +319,31 @@ export default function StaffCartScreen() {
         </View>
       </Modal>
 
-      {/* Remove Item Modal — same style as Confirm Order */}
+      {/* Remove Item Modal */}
       <Modal visible={removeModalVisible} transparent animationType="fade">
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white p-5 rounded-xl w-80 shadow-lg">
-            <Text className="text-lg font-bold mb-1 text-center">Remove Item</Text>
-            <Text className="text-gray-500 text-center text-sm mb-4">
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{
+            backgroundColor: '#fff', padding: 24, borderRadius: 16, width: 320,
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, elevation: 8,
+          }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 4, color: '#111827' }}>
+              Remove Item
+            </Text>
+            <Text style={{ color: '#6b7280', textAlign: 'center', fontSize: 14, marginBottom: 20 }}>
               Remove "{pendingRemove?.name}" from cart?
             </Text>
-            <View className="flex-row justify-between">
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Pressable
                 onPress={cancelRemove}
-                className="bg-gray-200 px-5 py-2 rounded-lg"
+                style={{ backgroundColor: '#e5e7eb', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 }}
               >
-                <Text className="text-gray-800 font-semibold">Cancel</Text>
+                <Text style={{ color: '#1f2937', fontWeight: '600' }}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmRemove}
-                className="bg-red-500 px-5 py-2 rounded-lg"
+                style={{ backgroundColor: '#ef4444', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 }}
               >
-                <Text className="text-white font-semibold">Remove</Text>
+                <Text style={{ color: '#fff', fontWeight: '600' }}>Remove</Text>
               </Pressable>
             </View>
           </View>

@@ -14,7 +14,7 @@ import Svg, { Path, G, Text as SvgText, Circle, Line } from 'react-native-svg';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
-import { apiGet } from '@/lib/services/api';
+import { apiGet } from '../../src/lib/services/api';
 
 const CACHE_KEY = 'RetailerDashboard';
 
@@ -162,7 +162,7 @@ export default function RetailerDashboard() {
       const userStr = await AsyncStorage.getItem('user');
       if (!userStr) { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Login' }] })); return; }
       const userData = JSON.parse(userStr);
-      if (userData.role !== 'retailer') { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'DealerDashboard' }] })); return; }
+      if (userData.role !== 'retailer') { navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Login' }] })); return; }
       setUser(userData);
       screenDataCache[CACHE_KEY] = { ...screenDataCache[CACHE_KEY], user: userData };
       fetchOrders(userData.id, !!cached);

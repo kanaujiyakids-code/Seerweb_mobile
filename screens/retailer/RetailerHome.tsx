@@ -181,7 +181,7 @@ export default function RetailerHome() {
       const userString = await AsyncStorage.getItem('user');
       if (!userString) { navigation.replace('Login'); return; }
       const parsed = JSON.parse(userString);
-      if (parsed.role !== 'retailer') { navigation.replace('DealerDashboard'); return; }
+      if (parsed.role !== 'retailer') { navigation.replace('Login'); return; }
     };
     fetchUser();
   }, [navigation]);

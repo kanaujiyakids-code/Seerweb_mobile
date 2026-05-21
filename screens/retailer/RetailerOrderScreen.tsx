@@ -90,7 +90,7 @@ const RetailerOrderScreen = () => {
 
       const userData = JSON.parse(userString);
       if (userData.role !== 'retailer') {
-        navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'DealerDashboard' }] }));
+        navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Login' }] }));
         return;
       }
 
