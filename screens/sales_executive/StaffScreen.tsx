@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import {
   View, Text, ScrollView, TextInput, FlatList,
-  Pressable, ActivityIndicator, Linking, Platform, Modal
+  Pressable, ActivityIndicator, Linking, Platform
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomTabNavigator from 'components/BottomTabNavigator';
@@ -82,7 +82,7 @@ export default function StaffScreen() {
     setAlertVisible(true);
   }, []);
 
-  /* -------------------- CART HELPERS (same as RetailerHome) -------------------- */
+  /* -------------------- CART HELPERS -------------------- */
 
   const handleAddVariant = useCallback(
     (productId: number, variant: ProductVariant, qty: number) => {
@@ -95,7 +95,7 @@ export default function StaffScreen() {
         quantity: qty,
         stock: variant.qty,
       });
-      showAlert('Added to cart');
+      // showAlert('Added to cart');
     },
     [addToCart, showAlert]
   );
@@ -116,9 +116,9 @@ export default function StaffScreen() {
   const handleAddSimple = useCallback(
     (productId: number) => {
       const product = products.find((p) => p.id === productId);
-      if (!product || product.stock === 0) return;
+      if (!product) return;
       addToCart({ productId, variantId: 0, price: product.price, quantity: 1, stock: product.stock });
-      showAlert('Added to cart');
+      // showAlert('Added to cart');
     },
     [products, addToCart, showAlert]
   );
@@ -209,7 +209,6 @@ export default function StaffScreen() {
         setRetailers(retData);
         setFilteredRetailers(retData);
 
-        // Same mapping as RetailerHome
         const formatted: Product[] = (prodData || []).map((item: any) => {
           let attrs: Record<string, string> = {};
           if (item.attributes) {
@@ -264,7 +263,7 @@ export default function StaffScreen() {
   /* -------------------- MAIN RETURN -------------------- */
 
   return (
-    <SafeAreaView style={{ flex: 1}} edges={['top']}>
+    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
       <Navbar user={user?.name} />
 
       {/* ---------- TOP TABS ---------- */}
@@ -465,6 +464,9 @@ export default function StaffScreen() {
         </ScrollView>
       )}
 
+      {/* ✅ CustomAlert is OUTSIDE all tab conditionals so the Modal
+          always renders at the SafeAreaView level with proper full-screen
+          overlay — this fixes the top-left corner positioning bug */}
       <CustomAlert
         visible={alertVisible}
         message={alertMsg}

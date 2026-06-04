@@ -4,26 +4,20 @@
     "slug": "SeerwebOMS",
     "version": "1.0.0",
     "orientation": "portrait",
-
     "icon": "./assets/icon.png",
-
     "userInterfaceStyle": "light",
-
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-
     "assetBundlePatterns": [
       "**/*"
     ],
-
     "ios": {
       "supportsTablet": true,
       "icon": "./assets/icon.png"
     },
-
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -32,19 +26,16 @@
       },
       "package": "com.kanaujiyar38.SeerwebOMS"
     },
-
     "web": {
       "favicon": "./assets/favicon.png"
     },
-
     "experiments": {
       "tsconfigPaths": true
     },
-
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-speech-recognition"
     ],
-
     "extra": {
       "eas": {
         "projectId": "fba4cda1-c63c-4e7f-9892-805f37e4b0eb"

@@ -44,3 +44,6 @@ export default function AuthLoadingScreen() {
     </View>
   );
 }
+
+
+// update products cart as per business type, currently user select anyone size from the cart and add to summary cart or can add sets to cart but user should able to select multiple sizes like in the image

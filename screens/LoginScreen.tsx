@@ -7,6 +7,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  StyleSheet,
+  ImageBackground,
+  Image,
+  ScrollView,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
@@ -17,7 +21,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiUrl } from 'apiurl';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import RefreshWrapper from 'components/RefreshWrapper';
 import { getErrorMessage, getHomeRouteForRole } from '../src/lib/app';
 
 export default function LoginScreen() {
@@ -46,10 +49,7 @@ export default function LoginScreen() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          username,
-          password,
-        }),
+        body: JSON.stringify({ username, password }),
       });
 
       const data = await response.json();
@@ -81,70 +81,73 @@ export default function LoginScreen() {
     }
   };
 
-  // Pull-to-refresh reset
-  const handleRefresh = async () => {
-    setUsername('');
-    setPassword('');
-    setErrorMessage('');
-  };
-
   return (
-    <SafeAreaView className="flex-1">
-      <RefreshWrapper onRefresh={handleRefresh}>
+    <SafeAreaView style={styles.safeArea}>
+      {/* Background Image */}
+      <ImageBackground
+        source={require('../assets/images/login_mobile.png')}
+        style={styles.bgImage}
+        imageStyle={styles.bgImageStyle}
+        resizeMode="cover"
+      />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          className="flex-1 justify-center items-center"
+          style={styles.keyboardView}
         >
-          {/* Background Image */}
-          <Animated.Image
-            source={require('../assets/images/login_mobile.png')}
-            className="absolute top-0 left-0 h-full w-full opacity-20"
-            resizeMode="cover"
-          />
-
           {/* Login Container */}
-          <View className="w-full max-w-md p-6 rounded-2xl mb-32">
+          <View style={styles.container}>
             {/* Logo */}
-            <Animated.Image
+            <Animated.View
               entering={FadeInUp.delay(200).duration(500).springify()}
-              source={require('../assets/icon.png')}
-              className="w-28 h-28 mt-6 mb-6 self-center"
-              resizeMode="contain"
-            />
+              style={styles.logoWrapper}
+            >
+              <Image
+                source={require('../assets/icon.png')}
+                style={styles.logo}
+                resizeMode="cover"
+              />
+            </Animated.View>
 
             {/* Username Input */}
             <Animated.View
               entering={FadeInDown.delay(200).duration(1500).springify()}
-              className="rounded-2xl mb-4 bg-white"
+              style={styles.inputWrapper}
             >
               <TextInput
                 placeholder="Username"
-                className="border rounded-2xl h-14 px-4 text-black"
+                style={styles.input}
                 placeholderTextColor="rgba(0,0,0,0.4)"
                 value={username}
                 onChangeText={setUsername}
                 editable={!loading}
+                autoCapitalize="none"
               />
             </Animated.View>
 
             {/* Password Input */}
             <Animated.View
               entering={FadeInDown.delay(300).duration(1500).springify()}
-              className="border bg-white rounded-2xl h-14 px-4 flex-row items-center"
+              style={styles.passwordWrapper}
             >
               <TextInput
                 placeholder="Password"
-                className="flex-1 text-black"
+                style={styles.passwordInput}
                 secureTextEntry={!showPassword}
                 placeholderTextColor="rgba(0,0,0,0.4)"
                 value={password}
                 onChangeText={setPassword}
                 editable={!loading}
               />
-
               <Pressable
                 onPress={() => setShowPassword(!showPassword)}
                 disabled={loading}
+                style={styles.eyeBtn}
               >
                 <Feather
                   name={showPassword ? 'eye-off' : 'eye'}
@@ -156,9 +159,7 @@ export default function LoginScreen() {
 
             {/* Error Message */}
             {errorMessage ? (
-              <Text className="text-red-500 text-sm mt-2 ml-2">
-                {errorMessage}
-              </Text>
+              <Text style={styles.errorText}>{errorMessage}</Text>
             ) : null}
 
             {/* Login Button */}
@@ -168,26 +169,19 @@ export default function LoginScreen() {
               <Pressable
                 disabled={loading}
                 onPress={handleLogin}
-                className={`rounded-2xl py-3 mt-8 h-14 justify-center shadow-lg ${
-                  loading ? 'bg-[#7f92f5]' : 'bg-[#5b74f1]'
-                }`}
+                style={[
+                  styles.loginBtn,
+                  { backgroundColor: loading ? '#7f92f5' : '#5b74f1' },
+                ]}
               >
-                <View className="flex-row items-center justify-center">
+                <View style={styles.loginBtnInner}>
                   {loading ? (
                     <>
-                      <ActivityIndicator
-                        size="small"
-                        color="#ffffff"
-                      />
-
-                      <Text className="text-white font-semibold text-base ml-3">
-                        Signing In...
-                      </Text>
+                      <ActivityIndicator size="small" color="#ffffff" />
+                      <Text style={styles.loginBtnText}>Signing In...</Text>
                     </>
                   ) : (
-                    <Text className="text-center text-white font-semibold text-base">
-                      Login
-                    </Text>
+                    <Text style={styles.loginBtnText}>Login</Text>
                   )}
                 </View>
               </Pressable>
@@ -196,15 +190,143 @@ export default function LoginScreen() {
             {/* Bottom Text */}
             <Animated.View
               entering={FadeInDown.delay(500).duration(1500).springify()}
-              className="mt-4 w-full items-center"
+              style={styles.bottomTextWrapper}
             >
-              <Text className="px-4 py-2 text-center rounded-md w-[90%] text-gray-700">
+              <Text style={styles.bottomText}>
                 Don&apos;t have your login details? Please contact your dealer.
               </Text>
             </Animated.View>
           </View>
         </KeyboardAvoidingView>
-      </RefreshWrapper>
+      </ScrollView>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  bgImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bgImageStyle: {
+    opacity: 0.2,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  keyboardView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  container: {
+    width: '100%',
+    maxWidth: 400,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    borderRadius: 16,
+    marginBottom: 32,
+  },
+  logoWrapper: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    marginTop: 24,
+    marginBottom: 24,
+    alignSelf: 'center',
+    overflow: 'hidden',
+    shadowColor: '#5b74f1',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  logo: {
+    width: '100%',
+    height: '100%',
+  },
+  inputWrapper: {
+    borderRadius: 16,
+    marginBottom: 16,
+    backgroundColor: '#fff',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    height: 56,
+    paddingHorizontal: 16,
+    color: '#000',
+    fontSize: 15,
+  },
+  passwordWrapper: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    height: 56,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  passwordInput: {
+    flex: 1,
+    color: '#000',
+    fontSize: 15,
+  },
+  eyeBtn: {
+    padding: 4,
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 13,
+    marginTop: 6,
+    marginLeft: 4,
+    marginBottom: 4,
+  },
+  loginBtn: {
+    borderRadius: 16,
+    paddingVertical: 12,
+    marginTop: 24,
+    height: 56,
+    justifyContent: 'center',
+    shadowColor: '#5b74f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  loginBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  loginBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  bottomTextWrapper: {
+    marginTop: 16,
+    width: '100%',
+    alignItems: 'center',
+  },
+  bottomText: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    textAlign: 'center',
+    borderRadius: 8,
+    width: '90%',
+    color: '#374151',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+});

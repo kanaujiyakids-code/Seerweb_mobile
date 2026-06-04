@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -14,19 +14,17 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomAlert from 'components/CustomAlert';
 import BottomTabNavigator from 'components/BottomTabNavigator';
-import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../types/navigation';
 import { apiUrl } from 'apiurl';
 import RefreshWrapper from 'components/RefreshWrapper';
-import Voice from '@react-native-voice/voice';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
 import ProductCart, { Product, ProductVariant, CartItem } from 'components/ProductCart';
 import { useCart } from '../../context/CartContext';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// NOTE: @react-native-voice/voice removed — requires custom native build, not supported in Expo Go.
 
 interface RenderItemProps {
   item: Product;
@@ -38,10 +36,6 @@ interface RenderItemProps {
   onUpdateSimpleQty: (productId: number, qty: number) => void;
   onRemoveSimple: (productId: number) => void;
 }
-
-// ─── Memoized product card ────────────────────────────────────────────────────
-// Defined outside the component so it is never recreated on re-render.
-// All data is passed via props — no closure over parent scope.
 
 const MemoProductCard = memo(({
   item,
@@ -67,8 +61,6 @@ const MemoProductCard = memo(({
 ));
 MemoProductCard.displayName = 'MemoProductCard';
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function RetailerHome() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
@@ -83,16 +75,10 @@ export default function RetailerHome() {
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [modalImage, setModalImage] = useState<string | null>(null);
 
-  const isListening = useRef(false);
-
-  // ── Alert ───────────────────────────────────────────────────────────────────
-
   const showAlert = useCallback((msg: string) => {
     setAlertMsg(msg);
     setAlertVisible(true);
   }, []);
-
-  // ── Cart helpers ────────────────────────────────────────────────────────────
 
   const handleAddVariant = useCallback(
     (productId: number, variant: ProductVariant, qty: number) => {
@@ -131,7 +117,7 @@ export default function RetailerHome() {
   const handleAddSimple = useCallback(
     (productId: number) => {
       const product = products.find((p) => p.id === productId);
-      if (!product || product.stock === 0) return;
+      if (!product) return;
       addToCart({
         productId,
         variantId: 0,
@@ -162,8 +148,6 @@ export default function RetailerHome() {
     [removeFromCart]
   );
 
-  // ── Memoized totals ─────────────────────────────────────────────────────────
-
   const totalCartItems = useMemo(
     () => cart.reduce((s, c) => s + c.quantity, 0),
     [cart]
@@ -174,8 +158,6 @@ export default function RetailerHome() {
     [cart]
   );
 
-  // ── Auth guard ──────────────────────────────────────────────────────────────
-
   useEffect(() => {
     const fetchUser = async () => {
       const userString = await AsyncStorage.getItem('user');
@@ -185,8 +167,6 @@ export default function RetailerHome() {
     };
     fetchUser();
   }, [navigation]);
-
-  // ── Fetch products ──────────────────────────────────────────────────────────
 
   const fetchProducts = useCallback(async (dealerId: number) => {
     if (!dealerId) return;
@@ -221,7 +201,6 @@ export default function RetailerHome() {
       setProducts(formatted);
       setFilteredProducts(formatted);
 
-      // Use local `formatted`, not `products` state (still stale at this point)
       const validIds = new Set(formatted.map((p) => p.id));
       const staleIds = cart
         .filter((c) => !validIds.has(c.productId))
@@ -241,8 +220,6 @@ export default function RetailerHome() {
     }
   }, [cart, removeFromCart]);
 
-  // ── Boot ────────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     const boot = async () => {
       const userData = await AsyncStorage.getItem('user');
@@ -253,12 +230,8 @@ export default function RetailerHome() {
       }
     };
     boot();
-  // fetchProducts is stable via useCallback; omitting it from deps
-  // avoids an infinite loop on cart changes triggering a re-fetch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ── Search ──────────────────────────────────────────────────────────────────
 
   const handleSearch = useCallback((query: string) => {
     setSearch(query);
@@ -275,55 +248,6 @@ export default function RetailerHome() {
       )
     );
   }, [products]);
-
-  // ── Voice ───────────────────────────────────────────────────────────────────
-
-  // processVoiceProduct needs products & handlers — define it before the effect
-  const processVoiceProduct = useCallback((spokenText: string) => {
-    const cleaned = spokenText.toLowerCase().replace(/[^a-z0-9 ]/g, '');
-    const product =
-      products.find(
-        (p) =>
-          cleaned.includes((p.brand ?? '').toLowerCase()) &&
-          cleaned.includes((p.model ?? '').toLowerCase())
-      ) || products.find((p) => cleaned.includes(p.name.toLowerCase()));
-
-    if (!product) {
-      showAlert(`Product not found: ${spokenText}`);
-      return;
-    }
-    handleAddSimple(product.id);
-    showAlert(`Added: ${product.name}`);
-  }, [products, handleAddSimple, showAlert]);
-
-  useEffect(() => {
-    Voice.onSpeechResults = (event: any) => {
-      const spokenText = event.value?.[0];
-      if (!spokenText) return;
-      processVoiceProduct(spokenText);
-      isListening.current = false;
-    };
-    Voice.onSpeechError = (event: any) => {
-      console.error('Speech error:', event);
-      showAlert('Voice error');
-      isListening.current = false;
-    };
-    return () => { Voice.destroy().then(Voice.removeAllListeners); };
-  }, [processVoiceProduct, showAlert]);
-
-  const handleVoiceCommand = useCallback(async () => {
-    if (isListening.current) return;
-    try {
-      isListening.current = true;
-      await Voice.start('en-IN');
-      showAlert('🎤 Listening… say product name');
-    } catch {
-      showAlert('Voice recognition failed');
-      isListening.current = false;
-    }
-  }, [showAlert]);
-
-  // ── Render item ─────────────────────────────────────────────────────────────
 
   const renderItem = useCallback(({ item }: { item: Product }) => (
     <MemoProductCard
@@ -346,13 +270,9 @@ export default function RetailerHome() {
     handleRemoveSimple,
   ]);
 
-  // ── Refresh ─────────────────────────────────────────────────────────────────
-
   const handleRefresh = useCallback(async () => {
     if (user?.dealer_id) await fetchProducts(user.dealer_id);
   }, [user, fetchProducts]);
-
-  // ── JSX ─────────────────────────────────────────────────────────────────────
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -383,7 +303,6 @@ export default function RetailerHome() {
           <Text style={styles.pageTitle}>Browse Products</Text>
           <Text style={styles.pageSubtitle}>Add products to your cart for bulk ordering</Text>
 
-          {/* Cart summary strip */}
           {totalCartItems > 0 && (
             <View style={styles.cartStrip}>
               <View style={styles.cartStripBadge}>
@@ -396,7 +315,7 @@ export default function RetailerHome() {
             </View>
           )}
 
-          {/* Search bar */}
+          {/* Search bar — mic button removed (voice requires native build) */}
           <View style={styles.searchRow}>
             <TextInput
               placeholder="Search by name, brand, or model..."
@@ -405,10 +324,8 @@ export default function RetailerHome() {
               style={styles.searchInput}
               placeholderTextColor="#9CA3AF"
             />
-            
           </View>
 
-          {/* Products */}
           {loading ? (
             <ActivityIndicator size="large" color="#185FA5" style={{ marginTop: 40 }} />
           ) : filteredProducts.length === 0 ? (
@@ -441,8 +358,6 @@ export default function RetailerHome() {
     </SafeAreaView>
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -516,14 +431,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     fontSize: 14,
     color: '#111827',
-  },
-  micBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#185FA5',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   emptyText: {
     textAlign: 'center',

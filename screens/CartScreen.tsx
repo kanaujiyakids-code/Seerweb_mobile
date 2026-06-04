@@ -1,377 +1,358 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
   ActivityIndicator,
-  Alert,
-  Modal,
-  Image,
-  Pressable,
-  Dimensions,
   Animated,
-} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { PinchGestureHandler, State } from "react-native-gesture-handler";
-import { Feather } from "@expo/vector-icons";
-import BottomTabNavigator from "components/BottomTabNavigator";
-import OrderSummary from "components/OrderSummary";
+  Dimensions,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PinchGestureHandler } from 'react-native-gesture-handler';
+import { Feather } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiUrl } from 'apiurl';
+import BottomTabNavigator from 'components/BottomTabNavigator';
+import CartLineItem from 'components/CartLineItem';
+import CustomAlert from 'components/CustomAlert';
+import GarmentCartGroupCard from 'components/GarmentCartGroupCard';
+import Navbar from 'components/Navbar';
+import OrderSummary from 'components/OrderSummary';
+import { useCart } from '../context/CartContext';
 import {
-  cachedGet
-} from "src/lib/services/api";
-import { apiUrl as BASE_URL } from "apiurl";
-import { SafeAreaView } from "react-native-safe-area-context";
-import Navbar from "components/Navbar";
-import { useCart } from "../context/CartContext";
-import CustomAlert from "components/CustomAlert";
-import { useCallback, useEffect, useMemo, useState } from "react";
+  buildCartDisplayItems,
+  buildCartRows,
+  mapProductPayload,
+  type CartDisplayItem,
+  type CartProductDetail,
+} from '../src/lib/cart';
+import { cachedGet } from '../src/lib/services/api';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-interface Product {
-  id: number;
-  name: string;
-  brand: string;
-  model: string;
-  price: number;
-  stock: number;
-  image?: string | null;
-  variants?: any[];
-}
-
-interface CartRow {
-  key: string;
-  productId: number;
-  variantId: number;
-  name: string;
-  brand: string;
-  model: string;
-  variantLabel: string | null;
-  price: number;
-  quantity: number;
-  imageUri: string | null;
-}
+const BLUE = '#185FA5';
 
 export default function CartScreen() {
-  const { cart, updateCartQuantity, removeFromCart, clearCart } = useCart();
-
-  const [products, setProducts] = useState<Product[]>([]);
+  const { cart, addToCart, updateCartQuantity, removeFromCart, clearCart } = useCart();
+  const [productsById, setProductsById] = useState<Record<number, CartProductDetail>>({});
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmModal, setConfirmModal] = useState(false);
   const [removeModal, setRemoveModal] = useState(false);
-  
-  const [removeItem, setRemoveItem] = useState<{
-    productId: number;
-    variantId: number;
-    name: string;
-  } | null>(null);
-
-  // Image zoom modal
+  const [removeItem, setRemoveItem] = useState<{ productId: number; variantId: number; name: string } | null>(null);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertMsg, setAlertMsg] = useState('');
+  const [notes, setNotes] = useState('');
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const scaleValue = useState(new Animated.Value(1))[0];
 
-  const [alertVisible, setAlertVisible] = useState(false);
-  const [alertMsg, setAlertMsg] = useState("");
-  const showAlert = useCallback((msg: string) => {
-    setAlertMsg(msg);
+  const showAlert = useCallback((message: string) => {
+    setAlertMsg(message);
     setAlertVisible(true);
-  }, []);
-
-  const getImageUri = (img: string | null | undefined) => {
-    if (!img) return null;
-    if (img.startsWith('http')) return img;
-    return `${BASE_URL}/${img}`;
-  };
-
-
-  useEffect(() => {
-    const boot = async () => {
-      try {
-        const userStr = await AsyncStorage.getItem("user");
-        if (!userStr) { setLoading(false); return; }
-        const parsedUser = JSON.parse(userStr);
-        setUser(parsedUser);
-        await fetchProducts(parsedUser.dealer_id);
-      } catch (e) {
-        console.error("CartScreen boot error:", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    boot();
   }, []);
 
   const fetchProducts = useCallback(async (dealerId: number) => {
     try {
-      const token = (await AsyncStorage.getItem("token")) ?? undefined;
-
+      const token = (await AsyncStorage.getItem('token')) ?? undefined;
       const data = await cachedGet(`/products?dealerid=${dealerId}`, token);
+      const list = (data.products || data).map(mapProductPayload);
+      const nextMap: Record<number, CartProductDetail> = {};
 
-      const list: Product[] = (data.products || data).map((item: any) => ({
-        id: Number(item.id),
-        name: item.name || "",
-        brand: item.brand || "",
-        model: item.model || "",
-        price: Number(item.price),
-        stock: Number(item.stock),
-        image: item.image || null,
-        variants: item.variants ?? [],
-      }));
+      list.forEach((product: CartProductDetail) => {
+        nextMap[product.id] = product;
+      });
 
-      setProducts(list);
-    } catch (e) {
-      console.error("Failed to fetch products:", e);
+      setProductsById(nextMap);
+    } catch (error) {
+      console.error('Failed to fetch products:', error);
     }
   }, []);
 
+  useEffect(() => {
+    const boot = async () => {
+      try {
+        const userStr = await AsyncStorage.getItem('user');
+        if (!userStr) return;
+        const parsedUser = JSON.parse(userStr);
+        setUser(parsedUser);
+        await fetchProducts(parsedUser.dealer_id);
+      } catch (error) {
+        console.error('CartScreen boot error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const cartRows = useMemo((): CartRow[] => 
-    cart
-      .map((cartItem) => {
-        const product = products.find((p) => p.id === cartItem.productId);
-        if (!product) return null;
+    boot();
+  }, [fetchProducts]);
 
-        const displayPrice = cartItem.price;
+  const cartRows = useMemo(() => buildCartRows(cart, productsById), [cart, productsById]);
+  const cartDisplayItems = useMemo(() => buildCartDisplayItems(cartRows, productsById), [cartRows, productsById]);
+  const totalItems = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
+  const totalPrice = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
 
-        const variantLabel =
-          cartItem.size || cartItem.color
-            ? [cartItem.size, cartItem.color].filter(Boolean).join(" / ")
-            : null;
+  useEffect(() => {
+    const validProductIds = new Set(Object.keys(productsById).map(Number));
+    const staleItems = cart.filter((item) => Object.keys(productsById).length > 0 && !validProductIds.has(item.productId));
+    if (staleItems.length === 0) return;
 
-        const imageUri = getImageUri(product.image);
+    staleItems.forEach((item) => removeFromCart(item.productId, item.variantId));
+  }, [cart, productsById, removeFromCart]);
 
-        return {
-          key: `${cartItem.productId}-${cartItem.variantId}`,
-          productId: cartItem.productId,
-          variantId: cartItem.variantId,
-          name: product.name,
-          brand: product.brand,
-          model: product.model,
-          variantLabel,
-          price: displayPrice,
-          quantity: cartItem.quantity,
-          imageUri,
-        };
-      })
-      .filter(Boolean) as CartRow[]
-  , [cart, products]);
+  const increment = useCallback(
+    (productId: number, variantId: number, currentQty: number) => {
+      if (currentQty <= 0) {
+        const product = productsById[productId];
+        const variant = product?.variants?.find((entry) => Number(entry.id) === Number(variantId));
+        if (!variant) return;
 
-  const totalItems = useMemo(() => cart.reduce((s, c) => s + c.quantity, 0), [cart]);
-  const totalPrice = useMemo(() => cart.reduce((s, c) => s + c.price * c.quantity, 0), [cart]);
+        addToCart({
+          productId,
+          variantId,
+          size: variant.size,
+          color: variant.color,
+          price: Number(variant.rate ?? variant.mrp ?? product?.price ?? 0),
+          quantity: 1,
+          stock: Number(variant.qty ?? 0),
+        });
+        return;
+      }
 
+      updateCartQuantity(productId, variantId, currentQty + 1);
+    },
+    [addToCart, productsById, updateCartQuantity]
+  );
 
-  const increment = (productId: number, variantId: number, currentQty: number) => {
-    updateCartQuantity(productId, variantId, Math.min(currentQty + 1, 999));
-  };
-
-  const decrement = (productId: number, variantId: number, currentQty: number) => {
-    if (currentQty <= 1) {
-      removeFromCart(productId, variantId);
-    } else {
-      updateCartQuantity(productId, variantId, currentQty - 1);
-    }
-  };
+  const decrement = useCallback(
+    (productId: number, variantId: number, currentQty: number) => {
+      if (currentQty <= 1) removeFromCart(productId, variantId);
+      else updateCartQuantity(productId, variantId, currentQty - 1);
+    },
+    [removeFromCart, updateCartQuantity]
+  );
 
   const submitOrder = async () => {
     if (!user || totalItems === 0) return;
     setIsSubmitting(true);
 
     try {
-      const token = await AsyncStorage.getItem("token");
+      const token = await AsyncStorage.getItem('token');
+      const orderItems = cart.map((item) => {
+        const product = productsById[item.productId];
+        const variant =
+          item.variantId !== 0
+            ? product?.variants?.find((entry) => Number(entry.id) === Number(item.variantId))
+            : undefined;
+
+        return {
+          productId: item.productId,
+          ...(item.variantId !== 0 ? { variantId: item.variantId } : {}),
+          size: item.size ?? variant?.size,
+          color: item.color ?? variant?.color,
+          quantity: item.quantity,
+          price: item.price,
+          subtotal: item.price * item.quantity,
+          rack: '',
+          attributes_snapshot: {
+            brand: product?.brand || '',
+            model: product?.model || '',
+            business_type_id: product?.business_type_id ?? null,
+          },
+        };
+      });
 
       const payload = {
         retailerId: user.id,
         retailerName: user.name,
         dealerId: user.dealer_id,
         total: totalPrice,
-        notes: "",
+        notes,
         order_by: user?.role,
         order_by_id: user?.id,
-        items: cart.map((c) => ({
-          productId: c.productId,
-          variantId: c.variantId !== 0 ? c.variantId : undefined,
-          quantity: c.quantity,
-          price: c.price,
-        })),
+        items: orderItems,
       };
 
-      console.log("Submitting order payload:", payload);
-
-      const res = await fetch(`${BASE_URL}/orders`, {
-        method: "POST",
+      const response = await fetch(`${apiUrl}/orders`, {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });
 
-      const responseText = await res.text();
-      console.log("API Response:", responseText);
-
-      if (!res.ok) throw new Error("Order failed");
+      if (!response.ok) throw new Error('Order failed');
 
       clearCart();
       setConfirmModal(false);
-      showAlert("Order placed successfully!");
+      setNotes('');
+      showAlert('Order placed successfully!');
     } catch (error) {
-      console.error("Order submission error:", error);
-      showAlert("Failed to place order. Please try again.");
+      console.error('Order submission error:', error);
+      showAlert('Failed to place order. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const isCartEmpty = cartRows.length === 0;
+  const isCartEmpty = cartDisplayItems.length === 0;
 
   return (
-    <SafeAreaView className="flex-1">
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <Navbar user={user?.name} />
 
-      <ScrollView
-        className="px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: 120 }}
-      >
-        <Text className="text-2xl font-bold mb-4">Your Cart</Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} style={styles.scrollView}>
+        <Text style={styles.pageTitle}>Your Cart</Text>
+        <Text style={styles.pageSubtitle}>Review your items and confirm the order.</Text>
 
         {loading && isCartEmpty ? (
-          <ActivityIndicator size="large" color="#5b74f1" />
+          <ActivityIndicator size="large" color={BLUE} style={styles.loader} />
         ) : isCartEmpty ? (
-          <Text className="text-center text-gray-400 mt-20">Cart is empty</Text>
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Feather name="shopping-cart" size={36} color="#D1D5DB" />
+            </View>
+            <Text style={styles.emptyTitle}>Cart is empty</Text>
+            <Text style={styles.emptySubtitle}>Add products from the catalog to place an order.</Text>
+          </View>
         ) : (
-          cartRows.map((row) => (
-            <View key={row.key} className="bg-white p-4 mb-3 rounded-xl shadow">
-              <View className="flex-row items-start">
-                {row.imageUri ? (
-                  <Pressable
-                    onPress={() => {
-                      setSelectedImageUri(row.imageUri);
-                      setImageModalVisible(true);
-                      scaleValue.setValue(1);
-                    }}
-                  >
-                    <Image
-                      source={{ uri: row.imageUri }}
-                      className="w-20 h-20 rounded-lg mr-3"
-                      resizeMode="cover"
-                    />
-                  </Pressable>
-                ) : (
-                  <View className="w-20 h-20 bg-gray-100 rounded-lg mr-3 items-center justify-center">
-                    <Text className="text-gray-400 text-xs">No image</Text>
-                  </View>
-                )}
-                <View className="flex-1">
-                  <Text className="font-semibold">{row.name}</Text>
-                  <Text className="text-gray-500 text-sm">
-                    {row.brand} • {row.model}
-                  </Text>
-                  {row.variantLabel && (
-                    <Text className="text-xs text-indigo-500 mt-0.5">
-                      {row.variantLabel}
-                    </Text>
-                  )}
-                </View>
-              </View>
+          <>
+            <View style={styles.countStrip}>
+              <Text style={styles.countText}>{totalItems} item{totalItems !== 1 ? 's' : ''} in cart</Text>
+              <Text style={styles.countPrice}>₹{totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</Text>
+            </View>
 
-              <View className="flex-row justify-between items-center mt-3">
-                <Text className="text-blue-600 font-bold text-lg">
-                  ₹{row.price.toLocaleString("en-IN")}
-                </Text>
-
-                <View className="flex-row items-center">
-                  <Pressable onPress={() => decrement(row.productId, row.variantId, row.quantity)}>
-                    <Text>-</Text>
-                  </Pressable>
-                  <Text className="mx-3">{row.quantity}</Text>
-                  <Pressable onPress={() => increment(row.productId, row.variantId, row.quantity)}>
-                    <Text>+</Text>
-                  </Pressable>
-                </View>
-
-                <Pressable
-                  onPress={() => {
+            {cartDisplayItems.map((item: CartDisplayItem) =>
+              item.kind === 'garment-group' ? (
+                <GarmentCartGroupCard
+                  key={item.key}
+                  group={item}
+                  onImagePress={(imageUri) => {
+                    setSelectedImageUri(imageUri);
+                    setImageModalVisible(true);
+                    scaleValue.setValue(1);
+                  }}
+                  onDecrementSize={(variantId, currentQty) => decrement(item.productId, variantId, currentQty)}
+                  onIncrementSize={(variantId, currentQty) => increment(item.productId, variantId, currentQty)}
+                  onRemoveSize={(variantId) => {
+                    const sizeItem = item.sizes.find((entry) => entry.variantId === variantId);
                     setRemoveItem({
-                      productId: row.productId,
-                      variantId: row.variantId,
-                      name: row.name,
+                      productId: item.productId,
+                      variantId,
+                      name: `${item.name}${sizeItem ? ` (${sizeItem.sizeLabel})` : ''}`,
                     });
                     setRemoveModal(true);
                   }}
-                  className="ml-2"
-                >
-                  <Feather name="trash-2" size={20} color="red" />
-                </Pressable>
-              </View>
-            </View>
-          ))
-        )}
+                />
+              ) : (
+                <CartLineItem
+                  key={item.key}
+                  row={item}
+                  onImagePress={(imageUri) => {
+                    setSelectedImageUri(imageUri);
+                    setImageModalVisible(true);
+                    scaleValue.setValue(1);
+                  }}
+                  onDecrement={() => decrement(item.productId, item.variantId, item.quantity)}
+                  onIncrement={() => increment(item.productId, item.variantId, item.quantity)}
+                  onRemove={() => {
+                    setRemoveItem({
+                      productId: item.productId,
+                      variantId: item.variantId,
+                      name: item.name,
+                    });
+                    setRemoveModal(true);
+                  }}
+                />
+              )
+            )}
 
-        {!isCartEmpty && (
-          <OrderSummary
-            totalItems={totalItems}
-            totalPrice={totalPrice}
-            onCheckout={() => setConfirmModal(true)}
-          />
+            <OrderSummary totalItems={totalItems} totalPrice={totalPrice} onCheckout={() => setConfirmModal(true)} />
+          </>
         )}
       </ScrollView>
 
-      {/* Confirm Order Modal */}
-      <Modal transparent visible={confirmModal}>
-        <View className="flex-1 bg-black/40 justify-center items-center">
-          <View className="bg-white p-5 rounded-xl w-80">
-            <Text className="text-lg font-bold text-center mb-1">Confirm Order?</Text>
-            <Text className="text-center text-gray-500 mb-4 text-sm">
-              {totalItems} item{totalItems !== 1 ? "s" : ""} · ₹{totalPrice.toLocaleString("en-IN")}
+      <Modal transparent visible={confirmModal} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirm Order</Text>
+            <Text style={styles.modalSubtitle}>
+              {totalItems} item{totalItems !== 1 ? 's' : ''} · ₹
+              {totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </Text>
-            <View className="flex-row justify-between">
-              <Pressable onPress={() => setConfirmModal(false)}>
-                <Text className="text-gray-600">Cancel</Text>
+
+            <View style={styles.modalList}>
+              {cartDisplayItems.map((item) => (
+                <View key={item.key} style={styles.modalListRow}>
+                  <Text style={styles.modalListLabel} numberOfLines={1}>
+                    {item.name}
+                    {'quantity' in item ? ` ×${item.quantity}` : ` ×${item.totalQuantity}`}
+                  </Text>
+                  <Text style={styles.modalListValue}>
+                    ₹{item.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Add any special instructions..."
+              placeholderTextColor="#9CA3AF"
+              multiline
+              style={styles.notesInput}
+            />
+
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setConfirmModal(false)} style={styles.secondaryBtn}>
+                <Text style={styles.secondaryBtnText}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={submitOrder} disabled={isSubmitting}>
-                <Text className="text-blue-600 font-semibold">
-                  {isSubmitting ? "Submitting…" : "Confirm"}
-                </Text>
+              <Pressable onPress={submitOrder} disabled={isSubmitting} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>{isSubmitting ? 'Submitting...' : 'Submit Order'}</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Remove Item Modal */}
-      <Modal transparent visible={removeModal}>
-        <View className="flex-1 bg-black/40 justify-center items-center">
-          <View className="bg-white p-5 rounded-xl w-80">
-            <Text className="text-center mb-1 font-semibold">Remove item?</Text>
-            {removeItem && (
-              <Text className="text-center text-gray-500 text-sm mb-4">
-                {removeItem.name}
-              </Text>
-            )}
-            <View className="flex-row justify-between">
-              <Pressable onPress={() => setRemoveModal(false)}>
-                <Text className="text-gray-600">Cancel</Text>
-              </Pressable>
+      <Modal transparent visible={removeModal} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Remove item?</Text>
+            <Text style={styles.modalSubtitle}>{removeItem?.name}</Text>
+            <View style={styles.modalActions}>
               <Pressable
                 onPress={() => {
-                  if (removeItem) {
-                    removeFromCart(removeItem.productId, removeItem.variantId);
-                  }
                   setRemoveModal(false);
                   setRemoveItem(null);
                 }}
+                style={styles.secondaryBtn}
               >
-                <Text className="text-red-600 font-semibold">Remove</Text>
+                <Text style={styles.secondaryBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (removeItem) removeFromCart(removeItem.productId, removeItem.variantId);
+                  setRemoveModal(false);
+                  setRemoveItem(null);
+                }}
+                style={[styles.primaryBtn, styles.removeBtn]}
+              >
+                <Text style={styles.primaryBtnText}>Remove</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* ── Image Zoom Modal ─────────────────────────────────────── */}
       <Modal
         visible={imageModalVisible}
         transparent
@@ -381,41 +362,209 @@ export default function CartScreen() {
           setSelectedImageUri(null);
         }}
       >
-        <View className="flex-1 bg-black/80 justify-center items-center p-4">
+        <View style={styles.imageModal}>
           <Pressable
-            className="flex-1 absolute inset-0"
+            style={StyleSheet.absoluteFill}
             onPress={() => {
               setImageModalVisible(false);
               setSelectedImageUri(null);
             }}
           />
           <PinchGestureHandler
-            onGestureEvent={Animated.event(
-              [{ nativeEvent: { scale: scaleValue } }],
-              { useNativeDriver: true }
-            )}
+            onGestureEvent={Animated.event([{ nativeEvent: { scale: scaleValue } }], {
+              useNativeDriver: true,
+            })}
           >
-            <Animated.View
-              className="rounded-2xl overflow-hidden shadow-2xl"
-              style={{
-                transform: [{ scale: scaleValue }],
-              }}
-            >
+            <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
               <Image
                 source={{ uri: selectedImageUri || '' }}
-                className="w-[90vw] h-[70vh] max-w-full max-h-full"
                 resizeMode="contain"
+                style={{ width: screenWidth * 0.9, height: screenHeight * 0.7 }}
               />
             </Animated.View>
           </PinchGestureHandler>
         </View>
       </Modal>
-       <CustomAlert
-          visible={alertVisible}
-          message={alertMsg}
-          onClose={() => setAlertVisible(false)}
-        />
+
+      <CustomAlert visible={alertVisible} message={alertMsg} onClose={() => setAlertVisible(false)} />
       <BottomTabNavigator />
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 110,
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  pageSubtitle: {
+    marginTop: 4,
+    marginBottom: 14,
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  loader: {
+    marginTop: 60,
+  },
+  countStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  countText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  countPrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: BLUE,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 80,
+    paddingHorizontal: 32,
+  },
+  emptyIcon: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  emptySubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    color: '#9CA3AF',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    padding: 24,
+  },
+  modalTitle: {
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalSubtitle: {
+    marginTop: 8,
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#6B7280',
+  },
+  modalList: {
+    marginTop: 16,
+    maxHeight: 180,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  modalListRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    gap: 12,
+  },
+  modalListLabel: {
+    flex: 1,
+    fontSize: 13,
+    color: '#374151',
+  },
+  modalListValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  notesInput: {
+    marginTop: 14,
+    minHeight: 84,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#111827',
+    textAlignVertical: 'top',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+  },
+  secondaryBtn: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  secondaryBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  primaryBtn: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: BLUE,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  removeBtn: {
+    backgroundColor: '#DC2626',
+  },
+  primaryBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  imageModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+});
