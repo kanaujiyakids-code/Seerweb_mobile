@@ -25,6 +25,7 @@ import type { RootStackParamList } from '../types/navigation';
 import {
   buildCartDisplayItems,
   buildCartRows,
+  buildGarmentCartSummary,
   mapProductPayload,
   type CartDisplayItem,
   type CartProductDetail,
@@ -52,14 +53,20 @@ export default function StaffCartScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [removeModalVisible, setRemoveModalVisible] = useState(false);
-  const [pendingRemove, setPendingRemove] = useState<{ productId: number; variantId: number; name: string } | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<{
+    productId: number;
+    variantIds: number[];
+    name: string;
+  } | null>(null);
   const [notes, setNotes] = useState('');
 
   const fetchProductDetails = useCallback(async (dealerId: number) => {
     try {
       const response = await fetch(`${apiUrl}/products?dealerid=${dealerId}`);
       const raw = await response.json();
-      const list = (Array.isArray(raw?.products) ? raw.products : Array.isArray(raw) ? raw : []).map(mapProductPayload);
+      const list = (
+        Array.isArray(raw?.products) ? raw.products : Array.isArray(raw) ? raw : []
+      ).map(mapProductPayload);
       const nextMap: Record<number, CartProductDetail> = {};
 
       list.forEach((product: CartProductDetail) => {
@@ -98,13 +105,26 @@ export default function StaffCartScreen() {
   }, [fetchProductDetails]);
 
   const cartRows = useMemo(() => buildCartRows(cart, productsById), [cart, productsById]);
-  const cartDisplayItems = useMemo(() => buildCartDisplayItems(cartRows, productsById), [cartRows, productsById]);
+  const cartDisplayItems = useMemo(
+    () => buildCartDisplayItems(cartRows, productsById),
+    [cartRows, productsById]
+  );
   const totalItems = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
-  const totalPrice = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
+  const totalPrice = useMemo(
+    () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    [cart]
+  );
+  const isGarmentBusiness = Number(user?.business_type_id) === 2;
+  const garmentSummary = useMemo(
+    () => (isGarmentBusiness ? buildGarmentCartSummary(cartDisplayItems, totalPrice) : null),
+    [cartDisplayItems, isGarmentBusiness, totalPrice]
+  );
 
   useEffect(() => {
     const validProductIds = new Set(Object.keys(productsById).map(Number));
-    const staleItems = cart.filter((item) => Object.keys(productsById).length > 0 && !validProductIds.has(item.productId));
+    const staleItems = cart.filter(
+      (item) => Object.keys(productsById).length > 0 && !validProductIds.has(item.productId)
+    );
     if (staleItems.length === 0) return;
 
     staleItems.forEach((item) => removeFromCart(item.productId, item.variantId));
@@ -116,6 +136,28 @@ export default function StaffCartScreen() {
         const product = productsById[productId];
         const variant = product?.variants?.find((entry) => Number(entry.id) === Number(variantId));
         if (!variant) return;
+        const fallbackColor = String(product?.attributes?.color ?? product?.color ?? '').trim();
+        const garmentMeta = {
+          designNumber:
+            String(product?.attributes?.design_number ?? product?.attributes?.designNumber ?? '').trim() ||
+            undefined,
+          fabricType:
+            String(product?.attributes?.fabric_type ?? product?.attributes?.fabricType ?? '').trim() ||
+            undefined,
+          bookingType:
+            String(product?.attributes?.booking_type ?? product?.attributes?.bookingType ?? '').trim() ||
+            undefined,
+          selectedColor: variant.color || fallbackColor || undefined,
+          selectedSizes: Array.isArray(product?.attributes?.selected_sizes)
+            ? product?.attributes?.selected_sizes.map((value: any) => String(value)).filter(Boolean)
+            : [],
+          productTags: Array.isArray(product?.attributes?.product_tags)
+            ? product?.attributes?.product_tags.map((value: any) => String(value)).filter(Boolean)
+            : [],
+          galleryImages: Array.isArray(product?.attributes?.gallery_images)
+            ? product?.attributes?.gallery_images.map((value: any) => String(value)).filter(Boolean)
+            : [],
+        };
 
         addToCart({
           productId,
@@ -125,6 +167,13 @@ export default function StaffCartScreen() {
           price: Number(variant.rate ?? variant.mrp ?? product?.price ?? 0),
           quantity: 1,
           stock: Number(variant.qty ?? 0),
+          brand: product?.brand,
+          model: product?.model,
+          image: product?.image ?? null,
+          productName: product?.name,
+          businessTypeId: product?.business_type_id ?? null,
+          attributes: product?.attributes ?? {},
+          garmentMeta,
         });
         return;
       }
@@ -157,6 +206,7 @@ export default function StaffCartScreen() {
           item.variantId !== 0
             ? product?.variants?.find((entry) => Number(entry.id) === Number(item.variantId))
             : undefined;
+        const garmentMeta = item.garmentMeta ?? undefined;
 
         return {
           productId: item.productId,
@@ -168,9 +218,19 @@ export default function StaffCartScreen() {
           subtotal: item.price * item.quantity,
           rack: '',
           attributes_snapshot: {
-            brand: product?.brand || '',
-            model: product?.model || '',
-            business_type_id: product?.business_type_id ?? null,
+            ...(item.attributes ?? {}),
+            brand: item.brand || product?.brand || '',
+            model: item.model || product?.model || '',
+            business_type_id: product?.business_type_id ?? item.businessTypeId ?? null,
+            color: item.color ?? variant?.color ?? garmentMeta?.selectedColor ?? '',
+            design_number: garmentMeta?.designNumber ?? '',
+            fabric_type: garmentMeta?.fabricType ?? '',
+            booking_type: garmentMeta?.bookingType ?? '',
+            garment_meta: garmentMeta,
+            selected_sizes: garmentMeta?.selectedSizes ?? [],
+            product_tags: garmentMeta?.productTags ?? [],
+            gallery_images: garmentMeta?.galleryImages ?? [],
+            set_quantity: item.setQuantity ?? 0,
           },
         };
       });
@@ -179,7 +239,7 @@ export default function StaffCartScreen() {
         retailerId: selectedRetailer.id,
         retailerName: selectedRetailer.store_name,
         dealerId: user.dealer_id,
-        total: totalPrice,
+        total: isGarmentBusiness ? (garmentSummary?.finalAmount ?? totalPrice) : totalPrice,
         notes,
         order_by: user.role,
         order_by_id: user.id,
@@ -247,13 +307,19 @@ export default function StaffCartScreen() {
               <Feather name="shopping-cart" size={36} color="#D1D5DB" />
             </View>
             <Text style={styles.emptyTitle}>Cart is empty</Text>
-            <Text style={styles.emptySubtitle}>Go to the customer products tab and add items to continue.</Text>
+            <Text style={styles.emptySubtitle}>
+              Go to the customer products tab and add items to continue.
+            </Text>
           </View>
         ) : (
           <>
             <View style={styles.countStrip}>
-              <Text style={styles.countText}>{totalItems} item{totalItems !== 1 ? 's' : ''} in cart</Text>
-              <Text style={styles.countPrice}>₹{totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</Text>
+              <Text style={styles.countText}>
+                {totalItems} item{totalItems !== 1 ? 's' : ''} in cart
+              </Text>
+              <Text style={styles.countPrice}>
+                ₹{totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </Text>
             </View>
 
             {cartDisplayItems.map((item: CartDisplayItem) =>
@@ -261,14 +327,26 @@ export default function StaffCartScreen() {
                 <GarmentCartGroupCard
                   key={item.key}
                   group={item}
-                  onDecrementSize={(variantId, currentQty) => handleDecrement(item.productId, variantId, currentQty)}
-                  onIncrementSize={(variantId, currentQty) => handleIncrement(item.productId, variantId, currentQty)}
+                  onDecrementSize={(variantId, currentQty) =>
+                    handleDecrement(item.productId, variantId, currentQty)
+                  }
+                  onIncrementSize={(variantId, currentQty) =>
+                    handleIncrement(item.productId, variantId, currentQty)
+                  }
                   onRemoveSize={(variantId) => {
                     const sizeItem = item.sizes.find((entry) => entry.variantId === variantId);
                     setPendingRemove({
                       productId: item.productId,
-                      variantId,
+                      variantIds: [variantId],
                       name: `${item.name}${sizeItem ? ` (${sizeItem.sizeLabel})` : ''}`,
+                    });
+                    setRemoveModalVisible(true);
+                  }}
+                  onRemoveProduct={() => {
+                    setPendingRemove({
+                      productId: item.productId,
+                      variantIds: item.sizes.map((size) => size.variantId),
+                      name: item.name,
                     });
                     setRemoveModalVisible(true);
                   }}
@@ -282,7 +360,7 @@ export default function StaffCartScreen() {
                   onRemove={() => {
                     setPendingRemove({
                       productId: item.productId,
-                      variantId: item.variantId,
+                      variantIds: [item.variantId],
                       name: item.name,
                     });
                     setRemoveModalVisible(true);
@@ -298,6 +376,24 @@ export default function StaffCartScreen() {
               checkoutLabel={selectedRetailer ? 'Checkout' : 'Select Customer First'}
               disabled={!selectedRetailer}
               helperText={!selectedRetailer ? 'Select a customer to proceed' : null}
+              summaryRows={
+                isGarmentBusiness && garmentSummary
+                  ? [
+                      { label: 'Products', value: String(garmentSummary.productCount) },
+                      { label: 'Total Pieces', value: String(garmentSummary.totalPieces) },
+                      { label: 'Total Sets', value: String(garmentSummary.totalSets) },
+                      {
+                        label: 'GST',
+                        value: `₹${garmentSummary.gst.toLocaleString('en-IN', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`,
+                      },
+                    ]
+                  : undefined
+              }
+              totalLabel={isGarmentBusiness ? 'Grand Total' : 'Total'}
+              totalAmount={isGarmentBusiness ? garmentSummary?.finalAmount : totalPrice}
               onCheckout={() => setConfirmModalVisible(true)}
             />
           </>
@@ -313,7 +409,7 @@ export default function StaffCartScreen() {
             <Text style={styles.modalTitle}>Confirm Order</Text>
             <Text style={styles.modalSubtitle}>
               {totalItems} item{totalItems !== 1 ? 's' : ''} · ₹
-              {totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              {(isGarmentBusiness ? garmentSummary?.finalAmount ?? totalPrice : totalPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </Text>
             {selectedRetailer ? (
               <Text style={styles.modalRetailer}>For: {selectedRetailer.store_name}</Text>
@@ -346,8 +442,13 @@ export default function StaffCartScreen() {
               <Pressable onPress={() => setConfirmModalVisible(false)} style={styles.secondaryBtn}>
                 <Text style={styles.secondaryBtnText}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={handleSubmitOrder} disabled={isSubmitting} style={styles.primaryBtn}>
-                <Text style={styles.primaryBtnText}>{isSubmitting ? 'Submitting...' : 'Submit Order'}</Text>
+              <Pressable
+                onPress={handleSubmitOrder}
+                disabled={isSubmitting}
+                style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>
+                  {isSubmitting ? 'Submitting...' : 'Submit Order'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -368,18 +469,18 @@ export default function StaffCartScreen() {
                   setRemoveModalVisible(false);
                   setPendingRemove(null);
                 }}
-                style={styles.secondaryBtn}
-              >
+                style={styles.secondaryBtn}>
                 <Text style={styles.secondaryBtnText}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
-                  if (pendingRemove) removeFromCart(pendingRemove.productId, pendingRemove.variantId);
+                  pendingRemove?.variantIds.forEach((variantId) =>
+                    removeFromCart(pendingRemove.productId, variantId)
+                  );
                   setRemoveModalVisible(false);
                   setPendingRemove(null);
                 }}
-                style={[styles.primaryBtn, styles.removeBtn]}
-              >
+                style={[styles.primaryBtn, styles.removeBtn]}>
                 <Text style={styles.primaryBtnText}>Remove</Text>
               </Pressable>
             </View>

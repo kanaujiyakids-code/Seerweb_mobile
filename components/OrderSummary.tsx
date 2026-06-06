@@ -15,6 +15,12 @@ interface OrderSummaryProps {
   checkoutLabel?: string;
   disabled?: boolean;
   helperText?: string | null;
+  summaryRows?: {
+    label: string;
+    value: string;
+  }[];
+  totalLabel?: string;
+  totalAmount?: number;
 }
 
 const BLUE = '#185FA5';
@@ -27,6 +33,9 @@ export default function OrderSummary({
   checkoutLabel = 'Checkout',
   disabled = false,
   helperText,
+  summaryRows,
+  totalLabel = 'Total',
+  totalAmount,
 }: OrderSummaryProps) {
   return (
     <View style={styles.container}>
@@ -56,14 +65,23 @@ export default function OrderSummary({
       {/* Divider */}
       <View style={styles.divider} />
 
+      {summaryRows?.length ? (
+        <View style={styles.breakdown}>
+          {summaryRows.map((row) => (
+            <View key={row.label} style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>{row.label}</Text>
+              <Text style={styles.breakdownValue}>{row.value}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {/* Total Row */}
       <View style={styles.row}>
-        <Text style={styles.totalLabel}>
-          Total
-        </Text>
+        <Text style={styles.totalLabel}>{totalLabel}</Text>
 
         <Text style={styles.totalValue}>
-          {formatCurrency(totalPrice)}
+          {formatCurrency(totalAmount ?? totalPrice)}
         </Text>
       </View>
 
@@ -144,6 +162,24 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#F3F4F6',
     marginVertical: 12,
+  },
+  breakdown: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  breakdownLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  breakdownValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
   },
 
   totalLabel: {

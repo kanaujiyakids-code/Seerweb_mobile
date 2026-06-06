@@ -30,6 +30,23 @@ export interface CartItem {
   price: number;
   quantity: number;
   stock: number;
+  brand?: string;
+  model?: string;
+  image?: string | null;
+  productName?: string;
+  businessTypeId?: number | null;
+  attributes?: Record<string, any>;
+  garmentMeta?: {
+    designNumber?: string;
+    fabricType?: string;
+    bookingType?: string;
+    selectedColor?: string;
+    selectedColorHex?: string;
+    selectedSizes?: string[];
+    productTags?: string[];
+    galleryImages?: string[];
+  };
+  setQuantity?: number;
 }
 
 type CartAction =
@@ -110,6 +127,25 @@ interface CartContextType {
   cart: CartItem[];
   cartCount: number;
   addToCart: (item: Omit<CartItem, 'stock'> & { stock?: number }) => void;
+  addGarmentBundle: (
+    product: {
+      id: number;
+      name: string;
+      brand?: string;
+      model?: string;
+      image?: string | null;
+      price: number;
+      stock: number;
+      business_type_id?: number | null;
+      attributes?: Record<string, any>;
+    },
+    variants: (ProductVariant & {
+      quantity: number;
+      color?: string;
+      setQuantity?: number;
+    })[],
+    garmentMeta?: CartItem['garmentMeta']
+  ) => void;
   updateCartQuantity: (productId: number, variantId: number, quantity: number) => void;
   removeFromCart: (productId: number, variantId: number) => void;
   clearCart: () => void;
@@ -179,6 +215,52 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     []
   );
 
+  const addGarmentBundle = useCallback(
+    (
+      product: {
+        id: number;
+        name: string;
+        brand?: string;
+        model?: string;
+        image?: string | null;
+        price: number;
+        stock: number;
+        business_type_id?: number | null;
+        attributes?: Record<string, any>;
+      },
+      variants: (ProductVariant & {
+        quantity: number;
+        color?: string;
+        setQuantity?: number;
+      })[],
+      garmentMeta?: CartItem['garmentMeta']
+    ) => {
+      const validVariants = variants.filter((variant) => variant.quantity > 0);
+      if (validVariants.length === 0) return;
+
+      validVariants.forEach((variant) => {
+        addToCart({
+          productId: product.id,
+          variantId: variant.id,
+          size: variant.size,
+          color: variant.color || garmentMeta?.selectedColor || product.attributes?.color || '',
+          price: Number(variant.rate ?? variant.mrp ?? product.price ?? 0),
+          quantity: variant.quantity,
+          stock: Number(variant.qty ?? product.stock ?? 0),
+          brand: product.brand,
+          model: product.model,
+          image: product.image,
+          productName: product.name,
+          businessTypeId: product.business_type_id ?? null,
+          attributes: product.attributes ?? {},
+          garmentMeta,
+          setQuantity: variant.setQuantity,
+        });
+      });
+    },
+    [addToCart]
+  );
+
   const updateCartQuantity = useCallback((productId: number, variantId: number, quantity: number) => {
     dispatch({ type: 'UPDATE', payload: { productId, variantId, quantity } });
   }, []);
@@ -196,12 +278,22 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       cart: safeCart,
       cartCount,
       addToCart,
+      addGarmentBundle,
       updateCartQuantity,
       removeFromCart,
       clearCart,
       loadCart,
     }),
-    [safeCart, cartCount, addToCart, updateCartQuantity, removeFromCart, clearCart, loadCart]
+    [
+      safeCart,
+      cartCount,
+      addToCart,
+      addGarmentBundle,
+      updateCartQuantity,
+      removeFromCart,
+      clearCart,
+      loadCart,
+    ]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

@@ -19,8 +19,14 @@ const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
 };
 
 interface OrderItem {
-  product: { name: string; price: number };
+  product: { name: string; price: number; mrp?: number; rate?: number };
   quantity: number;
+  price: number;
+  size?: string | null;
+  color?: string | null;
+  rack?: string | null;
+  variantId?: number | null;
+  attributes_snapshot?: Record<string, any> | null;
 }
 
 interface Order {

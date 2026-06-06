@@ -27,6 +27,7 @@ import { useCart } from '../context/CartContext';
 import {
   buildCartDisplayItems,
   buildCartRows,
+  buildGarmentCartSummary,
   mapProductPayload,
   type CartDisplayItem,
   type CartProductDetail,
@@ -45,7 +46,11 @@ export default function CartScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmModal, setConfirmModal] = useState(false);
   const [removeModal, setRemoveModal] = useState(false);
-  const [removeItem, setRemoveItem] = useState<{ productId: number; variantId: number; name: string } | null>(null);
+  const [removeItem, setRemoveItem] = useState<{
+    productId: number;
+    variantIds: number[];
+    name: string;
+  } | null>(null);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertMsg, setAlertMsg] = useState('');
   const [notes, setNotes] = useState('');
@@ -94,13 +99,26 @@ export default function CartScreen() {
   }, [fetchProducts]);
 
   const cartRows = useMemo(() => buildCartRows(cart, productsById), [cart, productsById]);
-  const cartDisplayItems = useMemo(() => buildCartDisplayItems(cartRows, productsById), [cartRows, productsById]);
+  const cartDisplayItems = useMemo(
+    () => buildCartDisplayItems(cartRows, productsById),
+    [cartRows, productsById]
+  );
   const totalItems = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
-  const totalPrice = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
+  const totalPrice = useMemo(
+    () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    [cart]
+  );
+  const isGarmentBusiness = Number(user?.business_type_id) === 2;
+  const garmentSummary = useMemo(
+    () => (isGarmentBusiness ? buildGarmentCartSummary(cartDisplayItems, totalPrice) : null),
+    [cartDisplayItems, isGarmentBusiness, totalPrice]
+  );
 
   useEffect(() => {
     const validProductIds = new Set(Object.keys(productsById).map(Number));
-    const staleItems = cart.filter((item) => Object.keys(productsById).length > 0 && !validProductIds.has(item.productId));
+    const staleItems = cart.filter(
+      (item) => Object.keys(productsById).length > 0 && !validProductIds.has(item.productId)
+    );
     if (staleItems.length === 0) return;
 
     staleItems.forEach((item) => removeFromCart(item.productId, item.variantId));
@@ -112,6 +130,28 @@ export default function CartScreen() {
         const product = productsById[productId];
         const variant = product?.variants?.find((entry) => Number(entry.id) === Number(variantId));
         if (!variant) return;
+        const fallbackColor = String(product?.attributes?.color ?? product?.color ?? '').trim();
+        const garmentMeta = {
+          designNumber:
+            String(product?.attributes?.design_number ?? product?.attributes?.designNumber ?? '').trim() ||
+            undefined,
+          fabricType:
+            String(product?.attributes?.fabric_type ?? product?.attributes?.fabricType ?? '').trim() ||
+            undefined,
+          bookingType:
+            String(product?.attributes?.booking_type ?? product?.attributes?.bookingType ?? '').trim() ||
+            undefined,
+          selectedColor: variant.color || fallbackColor || undefined,
+          selectedSizes: Array.isArray(product?.attributes?.selected_sizes)
+            ? product?.attributes?.selected_sizes.map((value: any) => String(value)).filter(Boolean)
+            : [],
+          productTags: Array.isArray(product?.attributes?.product_tags)
+            ? product?.attributes?.product_tags.map((value: any) => String(value)).filter(Boolean)
+            : [],
+          galleryImages: Array.isArray(product?.attributes?.gallery_images)
+            ? product?.attributes?.gallery_images.map((value: any) => String(value)).filter(Boolean)
+            : [],
+        };
 
         addToCart({
           productId,
@@ -121,6 +161,13 @@ export default function CartScreen() {
           price: Number(variant.rate ?? variant.mrp ?? product?.price ?? 0),
           quantity: 1,
           stock: Number(variant.qty ?? 0),
+          brand: product?.brand,
+          model: product?.model,
+          image: product?.image ?? null,
+          productName: product?.name,
+          businessTypeId: product?.business_type_id ?? null,
+          attributes: product?.attributes ?? {},
+          garmentMeta,
         });
         return;
       }
@@ -150,6 +197,7 @@ export default function CartScreen() {
           item.variantId !== 0
             ? product?.variants?.find((entry) => Number(entry.id) === Number(item.variantId))
             : undefined;
+        const garmentMeta = item.garmentMeta ?? undefined;
 
         return {
           productId: item.productId,
@@ -161,9 +209,19 @@ export default function CartScreen() {
           subtotal: item.price * item.quantity,
           rack: '',
           attributes_snapshot: {
-            brand: product?.brand || '',
-            model: product?.model || '',
-            business_type_id: product?.business_type_id ?? null,
+            ...(item.attributes ?? {}),
+            brand: item.brand || product?.brand || '',
+            model: item.model || product?.model || '',
+            business_type_id: product?.business_type_id ?? item.businessTypeId ?? null,
+            color: item.color ?? variant?.color ?? garmentMeta?.selectedColor ?? '',
+            design_number: garmentMeta?.designNumber ?? '',
+            fabric_type: garmentMeta?.fabricType ?? '',
+            booking_type: garmentMeta?.bookingType ?? '',
+            garment_meta: garmentMeta,
+            selected_sizes: garmentMeta?.selectedSizes ?? [],
+            product_tags: garmentMeta?.productTags ?? [],
+            gallery_images: garmentMeta?.galleryImages ?? [],
+            set_quantity: item.setQuantity ?? 0,
           },
         };
       });
@@ -220,13 +278,19 @@ export default function CartScreen() {
               <Feather name="shopping-cart" size={36} color="#D1D5DB" />
             </View>
             <Text style={styles.emptyTitle}>Cart is empty</Text>
-            <Text style={styles.emptySubtitle}>Add products from the catalog to place an order.</Text>
+            <Text style={styles.emptySubtitle}>
+              Add products from the catalog to place an order.
+            </Text>
           </View>
         ) : (
           <>
             <View style={styles.countStrip}>
-              <Text style={styles.countText}>{totalItems} item{totalItems !== 1 ? 's' : ''} in cart</Text>
-              <Text style={styles.countPrice}>₹{totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</Text>
+              <Text style={styles.countText}>
+                {totalItems} item{totalItems !== 1 ? 's' : ''} in cart
+              </Text>
+              <Text style={styles.countPrice}>
+                ₹{totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </Text>
             </View>
 
             {cartDisplayItems.map((item: CartDisplayItem) =>
@@ -239,14 +303,26 @@ export default function CartScreen() {
                     setImageModalVisible(true);
                     scaleValue.setValue(1);
                   }}
-                  onDecrementSize={(variantId, currentQty) => decrement(item.productId, variantId, currentQty)}
-                  onIncrementSize={(variantId, currentQty) => increment(item.productId, variantId, currentQty)}
+                  onDecrementSize={(variantId, currentQty) =>
+                    decrement(item.productId, variantId, currentQty)
+                  }
+                  onIncrementSize={(variantId, currentQty) =>
+                    increment(item.productId, variantId, currentQty)
+                  }
                   onRemoveSize={(variantId) => {
                     const sizeItem = item.sizes.find((entry) => entry.variantId === variantId);
                     setRemoveItem({
                       productId: item.productId,
-                      variantId,
+                      variantIds: [variantId],
                       name: `${item.name}${sizeItem ? ` (${sizeItem.sizeLabel})` : ''}`,
+                    });
+                    setRemoveModal(true);
+                  }}
+                  onRemoveProduct={() => {
+                    setRemoveItem({
+                      productId: item.productId,
+                      variantIds: item.sizes.map((size) => size.variantId),
+                      name: item.name,
                     });
                     setRemoveModal(true);
                   }}
@@ -265,7 +341,7 @@ export default function CartScreen() {
                   onRemove={() => {
                     setRemoveItem({
                       productId: item.productId,
-                      variantId: item.variantId,
+                      variantIds: [item.variantId],
                       name: item.name,
                     });
                     setRemoveModal(true);
@@ -274,7 +350,33 @@ export default function CartScreen() {
               )
             )}
 
-            <OrderSummary totalItems={totalItems} totalPrice={totalPrice} onCheckout={() => setConfirmModal(true)} />
+            <OrderSummary
+              totalItems={totalItems}
+              totalPrice={totalPrice}
+              onCheckout={() => setConfirmModal(true)}
+              customerName={selectedRetailer?.store_name || selectedRetailer?.name}
+              checkoutLabel={selectedRetailer ? 'Checkout' : 'Select Customer First'}
+              disabled={!selectedRetailer}
+              helperText={!selectedRetailer ? 'Select a customer to proceed' : null}
+              summaryRows={
+                isGarmentBusiness && garmentSummary
+                  ? [
+                      { label: 'Products', value: String(garmentSummary.productCount) },
+                      { label: 'Total Pieces', value: String(garmentSummary.totalPieces) },
+                      { label: 'Total Sets', value: String(garmentSummary.totalSets) },
+                      {
+                        label: 'GST',
+                        value: `₹${garmentSummary.gst.toLocaleString('en-IN', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`,
+                      },
+                    ]
+                  : undefined
+              }
+              totalLabel={isGarmentBusiness ? 'Grand Total' : 'Total'}
+              totalAmount={isGarmentBusiness ? garmentSummary?.finalAmount : totalPrice}
+            />
           </>
         )}
       </ScrollView>
@@ -285,7 +387,7 @@ export default function CartScreen() {
             <Text style={styles.modalTitle}>Confirm Order</Text>
             <Text style={styles.modalSubtitle}>
               {totalItems} item{totalItems !== 1 ? 's' : ''} · ₹
-              {totalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              {(isGarmentBusiness ? garmentSummary?.finalAmount ?? totalPrice : totalPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </Text>
 
             <View style={styles.modalList}>
@@ -316,7 +418,9 @@ export default function CartScreen() {
                 <Text style={styles.secondaryBtnText}>Cancel</Text>
               </Pressable>
               <Pressable onPress={submitOrder} disabled={isSubmitting} style={styles.primaryBtn}>
-                <Text style={styles.primaryBtnText}>{isSubmitting ? 'Submitting...' : 'Submit Order'}</Text>
+                <Text style={styles.primaryBtnText}>
+                  {isSubmitting ? 'Submitting...' : 'Submit Order'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -334,18 +438,18 @@ export default function CartScreen() {
                   setRemoveModal(false);
                   setRemoveItem(null);
                 }}
-                style={styles.secondaryBtn}
-              >
+                style={styles.secondaryBtn}>
                 <Text style={styles.secondaryBtnText}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
-                  if (removeItem) removeFromCart(removeItem.productId, removeItem.variantId);
+                  removeItem?.variantIds.forEach((variantId) =>
+                    removeFromCart(removeItem.productId, variantId)
+                  );
                   setRemoveModal(false);
                   setRemoveItem(null);
                 }}
-                style={[styles.primaryBtn, styles.removeBtn]}
-              >
+                style={[styles.primaryBtn, styles.removeBtn]}>
                 <Text style={styles.primaryBtnText}>Remove</Text>
               </Pressable>
             </View>
@@ -360,8 +464,7 @@ export default function CartScreen() {
         onRequestClose={() => {
           setImageModalVisible(false);
           setSelectedImageUri(null);
-        }}
-      >
+        }}>
         <View style={styles.imageModal}>
           <Pressable
             style={StyleSheet.absoluteFill}
@@ -373,8 +476,7 @@ export default function CartScreen() {
           <PinchGestureHandler
             onGestureEvent={Animated.event([{ nativeEvent: { scale: scaleValue } }], {
               useNativeDriver: true,
-            })}
-          >
+            })}>
             <Animated.View style={{ transform: [{ scale: scaleValue }] }}>
               <Image
                 source={{ uri: selectedImageUri || '' }}
@@ -386,7 +488,11 @@ export default function CartScreen() {
         </View>
       </Modal>
 
-      <CustomAlert visible={alertVisible} message={alertMsg} onClose={() => setAlertVisible(false)} />
+      <CustomAlert
+        visible={alertVisible}
+        message={alertMsg}
+        onClose={() => setAlertVisible(false)}
+      />
       <BottomTabNavigator />
     </SafeAreaView>
   );

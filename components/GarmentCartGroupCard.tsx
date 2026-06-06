@@ -9,12 +9,12 @@ interface GarmentCartGroupCardProps {
   onIncrementSize: (variantId: number, currentQty: number) => void;
   onDecrementSize: (variantId: number, currentQty: number) => void;
   onRemoveSize: (variantId: number) => void;
+  onRemoveProduct: () => void;
   onImagePress?: (imageUri: string) => void;
 }
 
 const BLUE = '#0F172A';
 const BLUE_ACCENT = '#1D4ED8';
-const GOLD = '#F59E0B';
 const BORDER = '#E5E7EB';
 
 export default function GarmentCartGroupCard({
@@ -22,6 +22,7 @@ export default function GarmentCartGroupCard({
   onIncrementSize,
   onDecrementSize,
   onRemoveSize,
+  onRemoveProduct,
   onImagePress,
 }: GarmentCartGroupCardProps) {
   return (
@@ -41,12 +42,24 @@ export default function GarmentCartGroupCard({
       <View style={styles.content}>
         <View style={styles.titleRow}>
           <View style={styles.titleBlock}>
+            {group.garmentMeta?.designNumber ? (
+              <Text style={styles.designText}>{group.garmentMeta.designNumber}</Text>
+            ) : null}
             <Text style={styles.name} numberOfLines={2}>
               {group.name}
             </Text>
             {(group.brand || group.model) && (
-              <Text style={styles.meta}>{[group.brand, group.model].filter(Boolean).join(' • ')}</Text>
+              <Text style={styles.meta}>
+                {[group.brand, group.model].filter(Boolean).join(' • ')}
+              </Text>
             )}
+            {group.garmentMeta?.fabricType || group.garmentMeta?.bookingType ? (
+              <Text style={styles.meta}>
+                {[group.garmentMeta?.bookingType, group.garmentMeta?.fabricType]
+                  .filter(Boolean)
+                  .join(' • ')}
+              </Text>
+            ) : null}
           </View>
           <Text style={styles.totalPrice}>{formatCurrency(group.subtotal)}</Text>
         </View>
@@ -87,15 +100,13 @@ export default function GarmentCartGroupCard({
                 <Pressable
                   onPress={() => onDecrementSize(size.variantId, size.quantity)}
                   disabled={!canDecrement}
-                  style={[styles.stepBtn, !canDecrement && styles.stepBtnDisabled]}
-                >
+                  style={[styles.stepBtn, !canDecrement && styles.stepBtnDisabled]}>
                   <Feather name="minus" size={15} color={canDecrement ? BLUE_ACCENT : '#94A3B8'} />
                 </Pressable>
                 <Text style={styles.stepQty}>{size.quantity}</Text>
                 <Pressable
                   onPress={() => onIncrementSize(size.variantId, size.quantity)}
-                  style={styles.stepBtn}
-                >
+                  style={styles.stepBtn}>
                   <Feather name="plus" size={15} color={BLUE_ACCENT} />
                 </Pressable>
               </View>
@@ -107,8 +118,7 @@ export default function GarmentCartGroupCard({
               <Pressable
                 onPress={() => onRemoveSize(size.variantId)}
                 disabled={!canDecrement}
-                style={[styles.removeBtn, !canDecrement && styles.removeBtnDisabled]}
-              >
+                style={[styles.removeBtn, !canDecrement && styles.removeBtnDisabled]}>
                 <Feather name="trash-2" size={14} color="#DC2626" />
               </Pressable>
             </View>
@@ -116,8 +126,14 @@ export default function GarmentCartGroupCard({
         })}
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{group.totalQuantity} pcs</Text>
-          <Text style={styles.footerText}>{group.sizes.length} sizes</Text>
+          <View>
+            <Text style={styles.footerTotal}>{group.totalQuantity} total pieces</Text>
+            <Text style={styles.footerAmount}>{formatCurrency(group.subtotal)}</Text>
+          </View>
+          <Pressable onPress={onRemoveProduct} hitSlop={8} style={styles.removeProductBtn}>
+            <Feather name="trash-2" size={14} color="#DC2626" />
+            <Text style={styles.removeProductText}>Remove product</Text>
+          </Pressable>
         </View>
       </View>
     </View>
@@ -164,6 +180,14 @@ const styles = StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
+  },
+  designText: {
+    fontSize: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    color: '#B45309',
+    fontWeight: '700',
+    marginBottom: 4,
   },
   name: {
     fontSize: 18,
@@ -332,15 +356,35 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
   },
-  footerText: {
-    fontSize: 12,
+  footerTotal: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  footerAmount: {
+    marginTop: 2,
+    fontSize: 14,
     fontWeight: '700',
-    color: GOLD,
+    color: BLUE,
+  },
+  removeProductBtn: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    backgroundColor: '#FEF2F2',
+  },
+  removeProductText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
   },
 });

@@ -31,8 +31,16 @@ interface OrderItem {
   product: {
     name: string;
     price: number;
+    mrp?: number;
+    rate?: number;
   };
   quantity: number;
+  price: number;
+  size?: string | null;
+  color?: string | null;
+  rack?: string | null;
+  variantId?: number | null;
+  attributes_snapshot?: Record<string, any> | null;
 }
 interface Order {
   id: number;
@@ -469,3 +477,4 @@ const RetailerOrderScreen = () => {
 };
 
 export default RetailerOrderScreen;
+

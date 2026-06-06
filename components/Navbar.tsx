@@ -20,19 +20,13 @@ function Navbar({ user }: NavbarProps) {
   const closeMenu = useCallback(() => setMenuVisible(false), []);
   const closeLogout = useCallback(() => setLogoutVisible(false), []);
 
-const goToProfile = useCallback(() => {
-  setMenuVisible(false);
-  // Wait for the modal's fade-out animation to finish before navigating
-  setTimeout(() => navigation.navigate('Profile'), 10);
-}, [navigation]);
+  const goToProfile = useCallback(() => {
+    setMenuVisible(false);
+    // Wait for the modal's fade-out animation to finish before navigating
+    setTimeout(() => navigation.navigate('Profile'), 10);
+  }, [navigation]);
   const handleLogout = useCallback(async () => {
-    await AsyncStorage.multiRemove([
-      'user',
-      'token',
-      'cart',
-      'selectedRetailer',
-      'welcomeShown',
-    ]);
+    await AsyncStorage.multiRemove(['user', 'token', 'cart', 'selectedRetailer', 'welcomeShown']);
     clearCache();
     clearRoleCache();
     setLogoutVisible(false);
@@ -42,35 +36,31 @@ const goToProfile = useCallback(() => {
   return (
     <View
       style={{
-        paddingHorizontal: 16,
+        paddingHorizontal: 12,
         backgroundColor: '#fff',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         borderBottomWidth: 1,
         borderBottomColor: '#e5e7eb',
-      }}
-    >
+      }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
         <Image
           source={require('../assets/icon.png')}
-          style={{ width: 58, height: 58, marginRight: 8 }}
+          style={{ width: 44, height: 44, marginRight: 6 }}
           resizeMode="contain"
         />
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>Seerweb OMS</Text>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827' }}>Seerweb OMS</Text>
         </View>
       </View>
 
       <Pressable onPress={() => setMenuVisible(true)} hitSlop={10}>
-        <Ionicons name="ellipsis-vertical" size={22} color="#374151" />
+        <Ionicons name="ellipsis-vertical" size={20} color="#374151" />
       </Pressable>
 
       <Modal transparent visible={menuVisible} animationType="fade" onRequestClose={closeMenu}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.15)' }}
-          onPress={closeMenu}
-        >
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.15)' }} onPress={closeMenu}>
           <View
             style={{
               position: 'absolute',
@@ -80,12 +70,10 @@ const goToProfile = useCallback(() => {
               borderRadius: 12,
               width: 200,
               elevation: 6,
-            }}
-          >
+            }}>
             <Pressable
               onPress={goToProfile}
-              style={{ flexDirection: 'row', padding: 14, alignItems: 'center' }}
-            >
+              style={{ flexDirection: 'row', padding: 14, alignItems: 'center' }}>
               <Ionicons name="person-outline" size={18} color="#111827" />
               <Text style={{ marginLeft: 12, fontWeight: '500', color: '#1f2937' }}>Profile</Text>
             </Pressable>
@@ -95,8 +83,7 @@ const goToProfile = useCallback(() => {
                 setMenuVisible(false);
                 setLogoutVisible(true);
               }}
-              style={{ flexDirection: 'row', padding: 14, alignItems: 'center' }}
-            >
+              style={{ flexDirection: 'row', padding: 14, alignItems: 'center' }}>
               <Ionicons name="log-out-outline" size={18} color="#ef4444" />
               <Text style={{ marginLeft: 12, fontWeight: '500', color: '#ef4444' }}>Logout</Text>
             </Pressable>
@@ -104,12 +91,7 @@ const goToProfile = useCallback(() => {
         </Pressable>
       </Modal>
 
-      <Modal
-        visible={logoutVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeLogout}
-      >
+      <Modal visible={logoutVisible} transparent animationType="fade" onRequestClose={closeLogout}>
         <View
           style={{
             flex: 1,
@@ -117,8 +99,7 @@ const goToProfile = useCallback(() => {
             alignItems: 'center',
             backgroundColor: 'rgba(0,0,0,0.5)',
             paddingHorizontal: 16,
-          }}
-        >
+          }}>
           <View
             style={{
               backgroundColor: '#fff',
@@ -126,8 +107,7 @@ const goToProfile = useCallback(() => {
               maxWidth: 360,
               borderRadius: 20,
               padding: 20,
-            }}
-          >
+            }}>
             <View style={{ alignItems: 'center', marginBottom: 16 }}>
               <View
                 style={{
@@ -135,8 +115,7 @@ const goToProfile = useCallback(() => {
                   padding: 12,
                   borderRadius: 50,
                   marginBottom: 12,
-                }}
-              >
+                }}>
                 <Feather name="log-out" size={28} color="#ef4444" />
               </View>
               <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827' }}>Logout</Text>
@@ -153,8 +132,7 @@ const goToProfile = useCallback(() => {
                   backgroundColor: '#e5e7eb',
                   borderRadius: 12,
                   alignItems: 'center',
-                }}
-              >
+                }}>
                 <Text style={{ fontWeight: '600', color: '#374151' }}>Cancel</Text>
               </Pressable>
               <Pressable
@@ -165,8 +143,7 @@ const goToProfile = useCallback(() => {
                   backgroundColor: '#ef4444',
                   borderRadius: 12,
                   alignItems: 'center',
-                }}
-              >
+                }}>
                 <Text style={{ fontWeight: '600', color: '#fff' }}>Logout</Text>
               </Pressable>
             </View>

@@ -8,6 +8,9 @@ export interface CartSnapshotItem {
   price: number;
   quantity: number;
   stock?: number;
+  businessTypeId?: number | null;
+  garmentMeta?: GarmentMeta;
+  attributes?: Record<string, any>;
 }
 
 export interface CartProductVariant {
@@ -28,13 +31,26 @@ export interface CartProductDetail {
   stock: number;
   image?: string | null;
   business_type_id?: number | null;
+  attributes?: Record<string, any>;
   variants?: CartProductVariant[];
+}
+
+export interface GarmentMeta {
+  designNumber?: string;
+  fabricType?: string;
+  bookingType?: string;
+  selectedColor?: string;
+  selectedColorHex?: string;
+  selectedSizes?: string[];
+  productTags?: string[];
+  galleryImages?: string[];
 }
 
 export interface CartRow {
   key: string;
   productId: number;
   variantId: number;
+  businessTypeId: number | null;
   name: string;
   brand: string;
   model: string;
@@ -50,6 +66,8 @@ export interface CartRow {
   isOutOfStock: boolean;
   sizeLabel: string | null;
   colorLabel: string | null;
+  garmentMeta?: GarmentMeta;
+  attributes?: Record<string, any>;
 }
 
 export interface GarmentGroupSize {
@@ -71,13 +89,14 @@ export interface GarmentCartGroup {
   brand: string;
   model: string;
   imageUri: string | null;
-  categoryLabel: 'Garments';
+  categoryLabel: 'Garments' | 'Mobile';
   colorLabel: string | null;
   totalQuantity: number;
   subtotal: number;
   maxSetCount: number;
   sizeSummary: string;
   sizes: GarmentGroupSize[];
+  garmentMeta?: GarmentMeta;
 }
 
 export interface SimpleCartDisplayItem extends CartRow {
@@ -96,6 +115,86 @@ export function getImageUri(image?: string | null): string | null {
   return `${apiUrl}/${image}`;
 }
 
+function parseAttributes(attributes?: unknown): Record<string, any> {
+  if (!attributes) return {};
+  if (typeof attributes === 'string') {
+    try {
+      const parsed = JSON.parse(attributes);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof attributes === 'object' && attributes !== null ? (attributes as Record<string, any>) : {};
+}
+
+function getAttributeText(attributes: Record<string, any>, keys: string[]): string {
+  for (const key of keys) {
+    const value = attributes[key];
+    if (value !== undefined && value !== null) {
+      const text = String(value).trim();
+      if (text && text !== 'null' && text !== 'undefined') {
+        return text;
+      }
+    }
+  }
+  return '';
+}
+
+function getAttributeList(attributes: Record<string, any>, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = attributes[key];
+    if (Array.isArray(value)) {
+      return value.map((entry) => String(entry).trim()).filter(Boolean);
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
+
+export function extractGarmentMeta(
+  product?: CartProductDetail,
+  item?: CartSnapshotItem
+): GarmentMeta | undefined {
+  const attributes = parseAttributes(product?.attributes);
+  const itemMeta = item?.garmentMeta ?? {};
+  const selectedColor =
+    item?.color ||
+    itemMeta.selectedColor ||
+    getAttributeText(attributes, ['selected_color', 'selectedColor', 'color']);
+  const meta: GarmentMeta = {
+    designNumber: itemMeta.designNumber || getAttributeText(attributes, ['design_number', 'designNumber']),
+    fabricType: itemMeta.fabricType || getAttributeText(attributes, ['fabric_type', 'fabricType']),
+    bookingType: itemMeta.bookingType || getAttributeText(attributes, ['booking_type', 'bookingType']),
+    selectedColor,
+    selectedColorHex:
+      itemMeta.selectedColorHex || getAttributeText(attributes, ['selected_color_hex', 'selectedColorHex']),
+    selectedSizes:
+      itemMeta.selectedSizes?.length > 0
+        ? itemMeta.selectedSizes
+        : getAttributeList(attributes, ['selected_sizes', 'selectedSizes']),
+    productTags:
+      itemMeta.productTags?.length > 0
+        ? itemMeta.productTags
+        : getAttributeList(attributes, ['product_tags', 'productTags']),
+    galleryImages:
+      itemMeta.galleryImages?.length > 0
+        ? itemMeta.galleryImages
+        : getAttributeList(attributes, ['gallery_images', 'galleryImages']),
+  };
+
+  const hasMeta = Object.values(meta).some((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(String(value ?? '').trim())
+  );
+
+  return hasMeta ? meta : undefined;
+}
+
 function getVariantStock(item: CartSnapshotItem, product?: CartProductDetail): number {
   if (item.variantId !== 0) {
     const variant = product?.variants?.find((entry) => Number(entry.id) === Number(item.variantId));
@@ -105,12 +204,26 @@ function getVariantStock(item: CartSnapshotItem, product?: CartProductDetail): n
   return Number(product?.stock ?? item.stock ?? 0);
 }
 
-function getCategoryLabel(product?: CartProductDetail, item?: CartSnapshotItem): 'Garments' | 'Mobile' {
-  if (Number(product?.business_type_id) === 2) {
+function getCategoryLabel(
+  product?: CartProductDetail,
+  item?: CartSnapshotItem
+): 'Garments' | 'Mobile' {
+  const itemBusinessTypeId = Number(item?.businessTypeId ?? 0);
+  const productBusinessTypeId = Number(product?.business_type_id ?? 0);
+
+  if (itemBusinessTypeId === 2 || productBusinessTypeId === 2 || Boolean(item?.garmentMeta)) {
     return 'Garments';
   }
 
   return 'Mobile';
+}
+
+function normalizeLabel(value?: string | null): string | null {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (['na', 'n/a', 'null', 'undefined', '-'].includes(lower)) return null;
+  return text;
 }
 
 function getSizeSortValue(sizeLabel: string): number {
@@ -122,14 +235,7 @@ function getSizeSortValue(sizeLabel: string): number {
 }
 
 export function mapProductPayload(item: any): CartProductDetail {
-  let attributes: Record<string, string> = {};
-
-  if (item?.attributes) {
-    attributes =
-      typeof item.attributes === 'string'
-        ? JSON.parse(item.attributes)
-        : item.attributes;
-  }
+  const attributes = parseAttributes(item?.attributes);
 
   return {
     id: Number(item.id),
@@ -140,6 +246,7 @@ export function mapProductPayload(item: any): CartProductDetail {
     stock: Number(item.stock ?? 0),
     image: item.image || null,
     business_type_id: item.business_type_id ?? null,
+    attributes,
     variants: Array.isArray(item.variants) ? item.variants : [],
   };
 }
@@ -158,25 +265,17 @@ export function buildCartRows(
           : undefined;
 
       const availableStock = Math.max(0, getVariantStock(item, product));
+      const sizeLabel = normalizeLabel(item.size) ?? normalizeLabel(productVariant?.size);
+      const colorLabel = normalizeLabel(item.color) ?? normalizeLabel(productVariant?.color);
       const variantLabel =
-        item.size || item.color || productVariant?.size || productVariant?.color
-          ? [item.size ?? productVariant?.size, item.color ?? productVariant?.color].filter(Boolean).join(' / ')
-          : null;
-      const sizeLabel = item.size
-        ? String(item.size).trim()
-        : productVariant?.size
-          ? String(productVariant.size).trim()
-          : null;
-      const colorLabel = item.color
-        ? String(item.color).trim()
-        : productVariant?.color
-          ? String(productVariant.color).trim()
-          : null;
+        sizeLabel || colorLabel ? [sizeLabel, colorLabel].filter(Boolean).join(' / ') : null;
+      const garmentMeta = extractGarmentMeta(product, item);
 
       return {
         key: `${item.productId}-${item.variantId}`,
         productId: item.productId,
         variantId: item.variantId,
+        businessTypeId: Number(item.businessTypeId ?? product?.business_type_id ?? null) || null,
         name: product.name || `Product #${item.productId}`,
         brand: product.brand || '',
         model: product.model || '',
@@ -192,6 +291,8 @@ export function buildCartRows(
         isOutOfStock: false,
         sizeLabel,
         colorLabel,
+        garmentMeta,
+        attributes: product.attributes,
       } satisfies CartRow;
     })
     .filter(Boolean) as CartRow[];
@@ -205,7 +306,7 @@ export function buildCartDisplayItems(
   const garmentGroups = new Map<string, GarmentCartGroup>();
 
   rows.forEach((row) => {
-    if (row.categoryLabel !== 'Garments' || !row.isVariantBased) {
+    if (!row.isVariantBased || row.categoryLabel !== 'Garments') {
       displayItems.push({
         ...row,
         kind: 'simple-row',
@@ -225,12 +326,13 @@ export function buildCartDisplayItems(
         brand: row.brand,
         model: row.model,
         imageUri: row.imageUri,
-        categoryLabel: 'Garments',
+        categoryLabel: row.categoryLabel,
         colorLabel: row.colorLabel,
         totalQuantity: row.quantity,
         subtotal: row.subtotal,
         maxSetCount: row.maxQuantity,
         sizeSummary: row.sizeLabel ? `1 set = ${row.sizeLabel}` : '',
+        garmentMeta: row.garmentMeta,
         sizes: [
           {
             key: row.key,
@@ -253,6 +355,7 @@ export function buildCartDisplayItems(
     existingGroup.totalQuantity += row.quantity;
     existingGroup.subtotal += row.subtotal;
     existingGroup.maxSetCount = Math.min(existingGroup.maxSetCount, row.maxQuantity);
+    existingGroup.garmentMeta = existingGroup.garmentMeta ?? row.garmentMeta;
     existingGroup.sizes.push({
       key: row.key,
       variantId: row.variantId,
@@ -266,37 +369,53 @@ export function buildCartDisplayItems(
   });
 
   displayItems.forEach((item) => {
-    if (item.kind !== 'garment-group') return;
+  if (item.kind !== 'garment-group') return;
 
-    const product = productsById[item.productId];
-    const matchingVariants = Array.isArray(product?.variants)
-      ? product.variants.filter((variant) => {
-          const variantColor = variant.color ? String(variant.color).trim() : null;
-          if (!item.colorLabel) return true;
-          return variantColor === item.colorLabel;
-        })
-      : [];
+  item.sizes.sort(
+    (left, right) => getSizeSortValue(left.sizeLabel) - getSizeSortValue(right.sizeLabel)
+  );
 
-    matchingVariants.forEach((variant) => {
-      const alreadyIncluded = item.sizes.some((entry) => entry.variantId === Number(variant.id));
-      if (alreadyIncluded) return;
+  const setCount =
+    item.sizes.length > 0
+      ? Math.min(...item.sizes.map((entry) => entry.quantity))
+      : 0;
 
-      item.sizes.push({
-        key: `${item.productId}-${variant.id}`,
-        variantId: Number(variant.id),
-        sizeLabel: variant.size ? String(variant.size).trim() : 'NA',
-        quantity: 0,
-        maxQuantity: Number.MAX_SAFE_INTEGER,
-        availableStock: Math.max(0, Number(variant.qty ?? 0)),
-        price: Number(variant.rate ?? variant.mrp ?? product?.price ?? 0),
-        subtotal: 0,
-      });
-    });
+  item.maxSetCount = setCount;
 
-    item.sizes.sort((left, right) => getSizeSortValue(left.sizeLabel) - getSizeSortValue(right.sizeLabel));
-    item.sizeSummary = `1 set = ${item.sizes.map((entry) => entry.sizeLabel).join(' + ')}`;
-    item.maxSetCount = item.totalQuantity;
-  });
+  const labelSummary = item.sizes
+    .map((entry) => entry.sizeLabel)
+    .filter((label) => label && label !== 'NA');
+
+  item.sizeSummary = labelSummary.length > 0
+    ? `${setCount} ${setCount === 1 ? 'set' : 'sets'} = ${labelSummary.join(' + ')}`
+    : `${setCount} ${setCount === 1 ? 'set' : 'sets'}`;
+});
 
   return displayItems;
+}
+
+export function buildGarmentCartSummary(displayItems: CartDisplayItem[], cartTotal: number) {
+  const garmentGroups = displayItems.filter(
+    (item): item is GarmentCartGroup => item.kind === 'garment-group'
+  );
+
+  const totalSets = garmentGroups.reduce((sum, item) => sum + item.maxSetCount, 0);
+  const totalPieces = displayItems.reduce((sum, item) => {
+    if (item.kind === 'garment-group') {
+      return sum + item.totalQuantity;
+    }
+
+    return sum + item.quantity;
+  }, 0);
+
+  const gst = cartTotal * 0.05;
+
+  return {
+    productCount: displayItems.length,
+    totalPieces,
+    totalSets,
+    subtotal: cartTotal,
+    gst,
+    finalAmount: cartTotal + gst,
+  };
 }

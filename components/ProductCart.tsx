@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
 import {
+  Alert,
   Image,
   Pressable,
   StyleSheet,
@@ -7,8 +9,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import { apiUrl } from 'apiurl';
+import { useCart } from '../context/CartContext';
 
 export interface ProductVariant {
   id: number;
@@ -30,7 +32,7 @@ export interface Product {
   description?: string;
   dealerid: number;
   image?: string | null;
-  attributes?: Record<string, string>;
+  attributes?: Record<string, any>;
   business_type_id?: number | null;
   variants?: ProductVariant[];
 }
@@ -43,6 +45,7 @@ export interface CartItem {
   price: number;
   quantity: number;
   stock: number;
+  setQuantity?: number;
 }
 
 interface ProductCartProps {
@@ -58,40 +61,85 @@ interface ProductCartProps {
 }
 
 const BLUE = '#0F172A';
-const NAVY = '#111827';
-const GOLD = '#F59E0B';
 const BORDER = '#E2E8F0';
+const GOLD = '#F59E0B';
 
-const getImageUri = (img: string | null | undefined): string | null => {
-  if (!img) return null;
-  if (img.startsWith('http')) return img;
-  return `${apiUrl}/${img}`;
-};
+const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
 
-const resolveColor = (product: Product): string => {
+function sortVariants(variants: ProductVariant[]) {
+  return [...variants].sort((left, right) => {
+    const leftSize = String(left.size ?? '').trim().toUpperCase();
+    const rightSize = String(right.size ?? '').trim().toUpperCase();
+    const leftIndex = sizeOrder.indexOf(leftSize);
+    const rightIndex = sizeOrder.indexOf(rightSize);
+
+    const safeLeft = leftIndex >= 0 ? leftIndex : sizeOrder.length + leftSize.charCodeAt(0);
+    const safeRight = rightIndex >= 0 ? rightIndex : sizeOrder.length + rightSize.charCodeAt(0);
+    return safeLeft - safeRight;
+  });
+}
+
+function getImageUri(image?: string | null): string | null {
+  if (!image) return null;
+  if (image.startsWith('http')) return image;
+  return `${apiUrl}/${image}`;
+}
+
+function resolveTextAttribute(attributes: Record<string, any>, keys: string[]): string {
+  for (const key of keys) {
+    const value = attributes[key];
+    if (value !== undefined && value !== null) {
+      const text = String(value).trim();
+      if (text && text !== 'null' && text !== 'undefined') {
+        return text;
+      }
+    }
+  }
+  return '';
+}
+
+function resolveTextList(attributes: Record<string, any>, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = attributes[key];
+    if (Array.isArray(value)) {
+      return value.map((entry) => String(entry).trim()).filter(Boolean);
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function resolveColor(product: Product): string {
   const direct = String(product.color ?? '').trim();
   if (direct && direct !== 'null' && direct !== 'undefined') return direct;
 
   const attrColor = String(product.attributes?.color ?? '').trim();
   if (attrColor && attrColor !== 'null' && attrColor !== 'undefined') return attrColor;
 
+  const colorList = resolveTextList(product.attributes ?? {}, ['available_colors', 'colors']);
+  if (colorList.length > 0) return colorList[0];
+
   return '';
-};
+}
 
-const formatINR = (amount: number) => `₹${amount.toLocaleString('en-IN')}`;
+function getAvailableColors(product: Product): string[] {
+  const colorList = resolveTextList(product.attributes ?? {}, ['available_colors', 'colors']);
+  if (colorList.length > 0) return colorList;
+  const fallback = resolveColor(product);
+  return fallback ? [fallback] : [];
+}
 
-const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+function formatCurrency(value: number) {
+  return `₹${Number(value || 0).toLocaleString('en-IN')}`;
+}
 
-function sortVariantSizes(variants: ProductVariant[]): ProductVariant[] {
-  return [...variants].sort((left, right) => {
-    const leftSize = String(left.size ?? '').toUpperCase();
-    const rightSize = String(right.size ?? '').toUpperCase();
-    const leftIndex = sizeOrder.indexOf(leftSize);
-    const rightIndex = sizeOrder.indexOf(rightSize);
-    const safeLeft = leftIndex >= 0 ? leftIndex : sizeOrder.length + leftSize.charCodeAt(0);
-    const safeRight = rightIndex >= 0 ? rightIndex : sizeOrder.length + rightSize.charCodeAt(0);
-    return safeLeft - safeRight;
-  });
+function isGarmentBusiness(product: Product) {
+  return Number(product.business_type_id) === 2;
 }
 
 export default function ProductCart({
@@ -100,336 +148,502 @@ export default function ProductCart({
   cart,
   onAddVariant,
   onUpdateVariantQty,
+  onRemoveVariant,
   onAddSimple,
   onUpdateSimpleQty,
+  onRemoveSimple,
 }: ProductCartProps) {
+  const { addGarmentBundle } = useCart();
   const [imgError, setImgError] = useState(false);
-  const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
-  const [pendingSetQty, setPendingSetQty] = useState('1');
-  const [pieceQuantities, setPieceQuantities] = useState<Record<number, string>>({});
+  const [selectedColor, setSelectedColor] = useState(() => resolveColor(product));
+  const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
+  const [pieceQuantities, setPieceQuantities] = useState<Record<string, string>>({});
+  const [setQty, setSetQty] = useState('1');
+  const [qtyState, setQtyState] = useState<Record<number, string>>({});
 
-  const variants = useMemo(() => sortVariantSizes(product.variants ?? []), [product.variants]);
+  const variants = useMemo(() => sortVariants(product.variants ?? []), [product.variants]);
   const imageUri = getImageUri(product.image);
   const productColor = resolveColor(product);
+  const colors = getAvailableColors(product);
+  const garmentBusiness = isGarmentBusiness(product);
   const hasVariants = variants.length > 0;
-  const isGarmentProduct = Number(product.business_type_id) === 2 && hasVariants;
-  const isMobileVariantProduct = !isGarmentProduct && hasVariants;
 
-  useEffect(() => {
-    if (!isGarmentProduct) return;
+  const attrPills = Object.entries(product.attributes ?? {})
+    .filter(([key, value]) => {
+      if (!value) return false;
+      return ![
+        'mrp',
+        'size',
+        'color',
+        'brand',
+        'model',
+        'available_colors',
+        'colors',
+        'design_number',
+        'designNumber',
+        'fabric_type',
+        'fabricType',
+        'booking_type',
+        'bookingType',
+        'gallery_images',
+        'galleryImages',
+        'product_tags',
+        'productTags',
+      ].includes(key);
+    })
+    .slice(0, 3);
 
-    setPieceQuantities((current) => {
-      const nextState: Record<number, string> = {};
-      variants.forEach((variant) => {
-        nextState[variant.id] = current[variant.id] ?? '';
-      });
-      return nextState;
-    });
-  }, [isGarmentProduct, variants]);
-
-  const getCartVariant = (variantId: number): CartItem | undefined =>
-    cart.find((entry) => entry.productId === product.id && entry.variantId === variantId);
-
-  const getCartSimple = (): CartItem | undefined =>
-    cart.find((entry) => entry.productId === product.id && entry.variantId === 0);
-
-  const totalInCart = cart
+  const inCartCount = cart
     .filter((entry) => entry.productId === product.id)
     .reduce((sum, entry) => sum + entry.quantity, 0);
 
-  const setSummary = variants
-    .map((variant) => variant.size || 'NA')
-    .join(' + ');
+  const cartVariant = (variantId: number) =>
+    cart.find((entry) => entry.productId === product.id && entry.variantId === variantId);
 
-  const handleAddSelectedSize = () => {
-    if (!selectedVariantId) return;
-    const variant = variants.find((entry) => entry.id === selectedVariantId);
-    if (!variant) return;
-    onAddVariant(product.id, variant, 1);
-  };
+  const cartSimple = cart.find((entry) => entry.productId === product.id && entry.variantId === 0);
 
-  const handlePieceQtyChange = (variantId: number, value: string) => {
-    const sanitized = value.replace(/[^0-9]/g, '');
-    setPieceQuantities((current) => ({
-      ...current,
-      [variantId]: sanitized,
-    }));
-  };
+  useEffect(() => {
+    if (garmentBusiness) {
+      setSelectedColor((current) => current || productColor);
+    }
+  }, [garmentBusiness, productColor]);
 
-  const selectedPieceEntries = useMemo(
-    () =>
-      variants
-        .map((variant) => {
-          const rawQuantity = parseInt(pieceQuantities[variant.id] ?? '', 10);
-          const quantity = Number.isNaN(rawQuantity) ? 0 : rawQuantity;
-          return quantity > 0 ? { variant, quantity } : null;
-        })
-        .filter(Boolean) as { variant: ProductVariant; quantity: number }[],
-    [pieceQuantities, variants]
+  useEffect(() => {
+    if (!hasVariants || garmentBusiness) return;
+
+    setQtyState((current) => {
+      const next: Record<number, string> = {};
+      variants.forEach((variant) => {
+        next[variant.id] = current[variant.id] ?? '1';
+      });
+      return next;
+    });
+  }, [hasVariants, garmentBusiness, variants]);
+
+  useEffect(() => {
+    if (!garmentBusiness) return;
+
+    setPieceQuantities((current) => {
+      const next: Record<string, string> = {};
+      selectedSizes.forEach((size) => {
+        next[size] = current[size] ?? '1';
+      });
+      return next;
+    });
+  }, [garmentBusiness, selectedSizes]);
+
+  const garmentMeta = useMemo(
+    () => ({
+      designNumber: resolveTextAttribute(product.attributes ?? {}, ['design_number', 'designNumber']),
+      fabricType: resolveTextAttribute(product.attributes ?? {}, ['fabric_type', 'fabricType']),
+      bookingType: resolveTextAttribute(product.attributes ?? {}, ['booking_type', 'bookingType']),
+      selectedColor,
+      selectedSizes,
+      productTags: resolveTextList(product.attributes ?? {}, ['product_tags', 'productTags']),
+      galleryImages: resolveTextList(product.attributes ?? {}, ['gallery_images', 'galleryImages']),
+    }),
+    [product.attributes, selectedColor, selectedSizes]
   );
 
-  const selectedPieceCount = selectedPieceEntries.reduce((sum, entry) => sum + entry.quantity, 0);
+  const handleAddGarmentPieces = () => {
+    if (!canProceed()) return;
 
-  const handleAddSelectedSizes = () => {
-    if (selectedPieceEntries.length === 0) return;
+    const selectedVariants = variants
+      .filter((variant) => selectedSizes.includes(String(variant.size ?? '').trim()))
+      .map((variant) => ({
+        ...variant,
+        quantity: Number.parseInt(pieceQuantities[String(variant.size ?? '').trim()] ?? '1', 10) || 0,
+        color: selectedColor,
+      }))
+      .filter((variant) => variant.quantity > 0);
 
-    selectedPieceEntries.forEach(({ variant, quantity }) => {
-      onAddVariant(product.id, variant, quantity);
-    });
+    if (selectedVariants.length === 0) {
+      Alert.alert('Invalid selection', 'Select at least one size and quantity.');
+      return;
+    }
 
-    setPieceQuantities((current) =>
-      Object.keys(current).reduce<Record<number, string>>((acc, key) => {
-        acc[Number(key)] = '';
-        return acc;
-      }, {})
+    addGarmentBundle(
+      {
+        id: product.id,
+        name: product.name,
+        brand: product.brand,
+        model: product.model,
+        image: product.image,
+        price: product.price,
+        stock: product.stock,
+        business_type_id: product.business_type_id ?? null,
+        attributes: product.attributes ?? {},
+      },
+      selectedVariants,
+      garmentMeta
     );
+
+    setSelectedSizes([]);
+    setPieceQuantities({});
   };
 
-  const handleAddSet = () => {
-    const count = parseInt(pendingSetQty, 10);
-    if (Number.isNaN(count) || count <= 0) return;
+  const handleAddGarmentSet = () => {
+    if (!canProceed()) return;
 
-    variants.forEach((variant) => {
-      onAddVariant(product.id, variant, count);
-    });
+    const qty = Number.parseInt(setQty, 10);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      Alert.alert('Invalid quantity', 'Enter a valid quantity.');
+      return;
+    }
 
-    setPendingSetQty('1');
+    const bundle = variants.map((variant) => ({
+      ...variant,
+      quantity: qty,
+      color: selectedColor,
+      setQuantity: qty,
+    }));
+
+    addGarmentBundle(
+      {
+        id: product.id,
+        name: product.name,
+        brand: product.brand,
+        model: product.model,
+        image: product.image,
+        price: product.price,
+        stock: product.stock,
+        business_type_id: product.business_type_id ?? null,
+        attributes: product.attributes ?? {},
+      },
+      bundle,
+      garmentMeta
+    );
+
+    setSetQty('1');
   };
 
-  const cartSimple = getCartSimple();
+  const canProceed = () => true;
+
+  const handleAddVariant = (variant: ProductVariant) => {
+    const quantity = Number.parseInt(qtyState[variant.id] ?? '1', 10);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      Alert.alert('Invalid quantity', 'Enter a valid quantity.');
+      return;
+    }
+
+    onAddVariant(product.id, variant, quantity);
+    setQtyState((current) => ({ ...current, [variant.id]: '1' }));
+  };
+
+  const handleAddSimple = () => {
+    onAddSimple(product.id);
+  };
 
   return (
-    <View style={[styles.card, totalInCart > 0 && styles.cardActive]}>
+    <View
+      style={[
+        styles.card,
+        inCartCount > 0 ? styles.cardActive : null,
+      ]}
+    >
       <View style={styles.imageShell}>
         {imageUri && !imgError ? (
-          <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" onError={() => setImgError(true)} />
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.image}
+            resizeMode="cover"
+            onError={() => setImgError(true)}
+          />
         ) : (
           <View style={styles.imagePlaceholder}>
-            <Text style={styles.placeholderText}>No Image</Text>
+            <Feather name="image" size={22} color="#94A3B8" />
           </View>
         )}
       </View>
 
       <View style={styles.body}>
-        <View style={styles.titleRow}>
+        <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.productCode}>
-              {product.attributes?.design || product.model || 'DESIGN PENDING'}
-            </Text>
+            {garmentBusiness && product.attributes?.design_number ? (
+              <Text style={styles.designText} numberOfLines={1}>
+                {product.attributes.design_number}
+              </Text>
+            ) : null}
             <Text style={styles.title} numberOfLines={2}>
               {product.name}
             </Text>
+            {(product.brand || product.model) && (
+              <Text style={styles.metaText} numberOfLines={1}>
+                {[product.brand, product.model].filter(Boolean).join(' • ')}
+              </Text>
+            )}
           </View>
+
           <View style={styles.priceBlock}>
             <Text style={styles.priceLabel}>MRP</Text>
-            <Text style={styles.priceValue}>{formatINR(product.price)}</Text>
+            <Text style={styles.priceValue}>{formatCurrency(product.price)}</Text>
           </View>
         </View>
 
-        <View style={styles.metaRow}>
-          <View style={styles.metaChip}>
-            <Text style={styles.metaChipText}>Ready to Order</Text>
-          </View>
-          {(product.attributes?.fabric || product.attributes?.material || product.brand) ? (
-            <View style={styles.metaChip}>
-              <Text style={styles.metaChipText}>
-                {product.attributes?.fabric || product.attributes?.material || product.brand}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-
-        {productColor ? (
-          <>
-            <Text style={styles.sectionLabel}>Colors</Text>
-            <View style={styles.colorWrap}>
-              <View style={styles.activeColorPill}>
-                <Text style={styles.activeColorText}>{productColor}</Text>
+        {attrPills.length > 0 && !garmentBusiness ? (
+          <View style={styles.pillWrap}>
+            {attrPills.map(([key, value]) => (
+              <View key={key} style={styles.attrPill}>
+                <Text style={styles.attrPillText} numberOfLines={1}>
+                  {String(value)}
+                </Text>
               </View>
-            </View>
-          </>
+            ))}
+          </View>
         ) : null}
 
-        {isGarmentProduct ? (
-          <>
-            {showSize ? <Text style={styles.sectionLabel}>Sizes</Text> : null}
-            <View style={styles.sizesWrap}>
+        {!garmentBusiness && productColor ? (
+          <View style={styles.infoBlock}>
+            <Text style={styles.sectionLabel}>Color</Text>
+            <View style={styles.colorWrap}>
+              <View style={styles.colorPill}>
+                <Text style={styles.colorPillText}>{productColor}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {!garmentBusiness && hasVariants ? (
+          <View style={styles.variantBlock}>
+            <View style={styles.variantHeader}>
+              <Text style={styles.sectionLabel}>{showSize ? 'Size Variants' : 'Variants'}</Text>
+            </View>
+            <View style={styles.variantTableHead}>
+              {showSize ? <Text style={[styles.variantHeadText, styles.variantSizeCol]}>Size</Text> : null}
+              <Text style={[styles.variantHeadText, styles.variantPriceCol]}>Price</Text>
+              <Text style={[styles.variantHeadText, styles.variantQtyCol]}>Qty</Text>
+              <View style={styles.variantActionCol} />
+            </View>
+
+            <View style={styles.variantList}>
               {variants.map((variant) => {
-                const inCart = getCartVariant(variant.id)?.quantity ?? 0;
+                const inCart = cartVariant(variant.id);
+                const currentQty = qtyState[variant.id] ?? '1';
+                const price = Number(variant.rate ?? variant.mrp ?? product.price ?? 0);
 
                 return (
                   <View
                     key={variant.id}
                     style={[
-                      styles.sizePill,
-                      styles.sizePillStatic,
+                      styles.variantRow,
+                      inCart ? styles.variantRowActive : null,
                     ]}
                   >
-                    <Text
-                      style={styles.sizePillText}
-                    >
-                      {variant.size || 'NA'}
-                    </Text>
-                    {inCart > 0 ? <Text style={styles.sizeCount}>{inCart}</Text> : null}
+                    {showSize ? (
+                      <View style={styles.variantSizeBadge}>
+                        <Text style={styles.variantSizeText}>{variant.size || '—'}</Text>
+                      </View>
+                    ) : null}
+
+                    <Text style={styles.variantPriceText}>{formatCurrency(price)}</Text>
+
+                    {inCart ? (
+                      <View style={styles.stepper}>
+                        <Pressable
+                          onPress={() =>
+                            onUpdateVariantQty(product.id, variant.id, inCart.quantity - 1)
+                          }
+                          style={styles.stepperBtn}
+                        >
+                          <Feather name="minus" size={14} color={BLUE} />
+                        </Pressable>
+                        <Text style={styles.stepperQty}>{inCart.quantity}</Text>
+                        <Pressable
+                          onPress={() =>
+                            onUpdateVariantQty(product.id, variant.id, inCart.quantity + 1)
+                          }
+                          style={styles.stepperBtn}
+                        >
+                          <Feather name="plus" size={14} color={BLUE} />
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <TextInput
+                        keyboardType="number-pad"
+                        value={currentQty}
+                        onChangeText={(value) =>
+                          setQtyState((current) => ({
+                            ...current,
+                            [variant.id]: value.replace(/[^0-9]/g, ''),
+                          }))
+                        }
+                        style={styles.qtyInput}
+                      />
+                    )}
+
+                    {inCart ? (
+                      <Pressable onPress={() => onRemoveVariant(product.id, variant.id)} style={styles.removeBtn}>
+                        <Feather name="trash-2" size={12} color="#DC2626" />
+                      </Pressable>
+                    ) : (
+                      <Pressable onPress={() => handleAddVariant(variant)} style={styles.addBtn}>
+                        <Feather name="plus" size={12} color="#FFFFFF" />
+                        <Text style={styles.addBtnText}>Add</Text>
+                      </Pressable>
+                    )}
                   </View>
                 );
               })}
             </View>
+          </View>
+        ) : null}
 
-            <View style={styles.pieceCard}>
-              <View style={styles.pieceHeader}>
-                <Text style={styles.pieceHeading}>Piece-Wise Ordering</Text>
-                <Text style={styles.pieceHint}>Enter qty per size</Text>
-              </View>
-
-              <View style={styles.pieceGrid}>
-                {variants.map((variant) => (
-                  <View key={variant.id} style={styles.pieceRow}>
-                    <View style={styles.pieceSizeChip}>
-                      <Text style={styles.pieceSizeChipText}>{variant.size || 'NA'}</Text>
-                    </View>
-                    <TextInput
-                      value={pieceQuantities[variant.id] ?? ''}
-                      onChangeText={(value) => handlePieceQtyChange(variant.id, value)}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      placeholderTextColor="#94A3B8"
-                      style={styles.pieceInput}
-                    />
-                  </View>
-                ))}
-              </View>
-
-              <Pressable
-                onPress={handleAddSelectedSizes}
-                disabled={selectedPieceEntries.length === 0}
-                style={[
-                  styles.addToCartBtn,
-                  styles.pieceAddButton,
-                  selectedPieceEntries.length === 0 && styles.addToCartBtnDisabled,
-                ]}
-              >
-                <Feather name="plus" size={18} color="#FFFFFF" />
-                <Text style={styles.addToCartText}>
-                  {selectedPieceCount > 0 ? `Add ${selectedPieceCount} Pc${selectedPieceCount > 1 ? 's' : ''} To Cart` : 'Add To Cart'}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.setCard}>
-              <View style={styles.setRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.setHeading}>Set Ordering</Text>
-                  <Text style={styles.setSubtitle}>1 set = {setSummary}</Text>
-                </View>
-                <TextInput
-                  value={pendingSetQty}
-                  onChangeText={setPendingSetQty}
-                  keyboardType="number-pad"
-                  style={styles.setInput}
-                />
-              </View>
-              <Pressable
-                onPress={handleAddSet}
-                style={styles.setButton}
-              >
-                <Feather name="shopping-bag" size={16} color="#FFFFFF" />
-                <Text style={styles.setButtonText}>Add Sets To Cart</Text>
-              </Pressable>
-            </View>
-          </>
-        ) : isMobileVariantProduct ? (
+        {garmentBusiness ? (
           <>
-            {showSize ? <Text style={styles.sectionLabel}>Sizes</Text> : null}
-            <View style={styles.sizesWrap}>
-              {variants.map((variant) => {
-                const inCart = getCartVariant(variant.id)?.quantity ?? 0;
-                const isSelected = selectedVariantId === variant.id;
-
-                return (
-                  <Pressable
-                  key={variant.id}
-                  onPress={() => setSelectedVariantId(variant.id)}
-                  style={[
-                    styles.sizePill,
-                    isSelected && styles.sizePillSelected,
-                  ]}
-                >
-                    <Text
+            {colors.length > 0 ? (
+              <View style={styles.infoBlock}>
+                <Text style={styles.sectionLabel}>Colors</Text>
+                <View style={styles.colorWrap}>
+                  {colors.map((color) => (
+                    <Pressable
+                      key={color}
+                      onPress={() => setSelectedColor(color)}
                       style={[
-                        styles.sizePillText,
-                        isSelected && styles.sizePillTextSelected,
+                        styles.garmentColorPill,
+                        selectedColor === color ? styles.garmentColorPillActive : null,
                       ]}
                     >
-                      {variant.size || 'NA'}
-                    </Text>
-                    {inCart > 0 ? <Text style={styles.sizeCount}>{inCart}</Text> : null}
-                  </Pressable>
-                );
-              })}
+                      <Text
+                        style={[
+                          styles.garmentColorText,
+                          selectedColor === color ? styles.garmentColorTextActive : null,
+                        ]}
+                      >
+                        {color}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            <View style={styles.infoBlock}>
+              <Text style={styles.sectionLabel}>Sizes</Text>
+              <View style={styles.sizeWrap}>
+                {variants.map((variant) => {
+                  const size = String(variant.size ?? '').trim() || 'NA';
+                  const active = selectedSizes.includes(size);
+                  const inCart = cartVariant(variant.id)?.quantity ?? 0;
+
+                  return (
+                    <Pressable
+                      key={variant.id}
+                      onPress={() =>
+                        setSelectedSizes((current) =>
+                          current.includes(size)
+                            ? current.filter((entry) => entry !== size)
+                            : [...current, size]
+                        )
+                      }
+                      style={[
+                        styles.sizePill,
+                        active ? styles.sizePillActive : null,
+                      ]}
+                    >
+                      <Text style={[styles.sizePillText, active ? styles.sizePillTextActive : null]}>
+                        {size}
+                      </Text>
+                      {inCart > 0 ? <Text style={styles.sizeCount}>{inCart}</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
 
-            <View style={styles.setCard}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.setHeading}>Set Ordering</Text>
-                <Text style={styles.setSubtitle}>1 set = {setSummary}</Text>
+            {selectedSizes.length > 0 ? (
+              <View style={styles.garmentCard}>
+                <View style={styles.garmentCardHeader}>
+                  <Text style={styles.garmentCardTitle}>Piece-Wise Ordering</Text>
+                  <Text style={styles.garmentCardHint}>Enter qty per size</Text>
+                </View>
+
+                <View style={styles.garmentGrid}>
+                  {variants
+                    .filter((variant) => selectedSizes.includes(String(variant.size ?? '').trim() || 'NA'))
+                    .map((variant) => {
+                      const size = String(variant.size ?? '').trim() || 'NA';
+                      return (
+                        <View key={variant.id} style={styles.garmentRow}>
+                          <View style={styles.garmentSizeChip}>
+                            <Text style={styles.garmentSizeChipText}>{size}</Text>
+                          </View>
+                          <TextInput
+                            value={pieceQuantities[size] ?? '1'}
+                            onChangeText={(value) =>
+                              setPieceQuantities((current) => ({
+                                ...current,
+                                [size]: value.replace(/[^0-9]/g, ''),
+                              }))
+                            }
+                            keyboardType="number-pad"
+                            style={styles.garmentQtyInput}
+                          />
+                        </View>
+                      );
+                    })}
+                </View>
+
+                <Pressable onPress={handleAddGarmentPieces} style={styles.primaryButton}>
+                  <Feather name="plus" size={14} color="#FFFFFF" />
+                  <Text style={styles.primaryButtonText}>Add To Cart</Text>
+                </Pressable>
               </View>
-              <TextInput
-                value={pendingSetQty}
-                onChangeText={setPendingSetQty}
-                keyboardType="number-pad"
-                style={styles.setInput}
-              />
-              <Pressable
-                onPress={handleAddSet}
-                style={styles.setButton}
-              >
-                <Feather name="shopping-bag" size={16} color="#FFFFFF" />
+            ) : null}
+
+            <View style={styles.garmentSetCard}>
+              <View style={styles.garmentSetRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.garmentSetTitle}>Set Ordering</Text>
+                  <Text style={styles.garmentSetSubtitle}>
+                    1 set = {variants.map((variant) => variant.size || 'NA').join(' + ') || 'All sizes'}
+                  </Text>
+                </View>
+                <TextInput
+                  value={setQty}
+                  onChangeText={(value) => setSetQty(value.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  style={styles.setQtyInput}
+                />
+              </View>
+              <Pressable onPress={handleAddGarmentSet} style={styles.setButton}>
+                <Feather name="shopping-bag" size={14} color="#FFFFFF" />
                 <Text style={styles.setButtonText}>Add Sets To Cart</Text>
               </Pressable>
             </View>
-
-            <View style={styles.bottomActions}>
-              <Pressable
-                onPress={handleAddSelectedSize}
-                disabled={!selectedVariantId}
-                style={[styles.addToCartBtn, !selectedVariantId && styles.addToCartBtnDisabled]}
-              >
-                <Feather name="plus" size={18} color="#FFFFFF" />
-                <Text style={styles.addToCartText}>Add To Cart</Text>
-              </Pressable>
-            </View>
           </>
-        ) : (
+        ) : null}
+
+        {!garmentBusiness && !hasVariants ? (
           <View style={styles.simpleRow}>
-            <View>
-              <Text style={styles.simplePrice}>{formatINR(product.price)}</Text>
-              <Text style={styles.simpleStock}>Flexible quantity ordering</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.simplePrice}>{formatCurrency(product.price)}</Text>
+              <Text style={styles.simpleHint}>Flexible quantity ordering</Text>
             </View>
+
             {cartSimple ? (
               <View style={styles.simpleStepper}>
-                <Pressable onPress={() => onUpdateSimpleQty(product.id, cartSimple.quantity - 1)} style={styles.simpleStepBtn}>
-                  <Feather name="minus" size={16} color={NAVY} />
+                <Pressable
+                  onPress={() => onUpdateSimpleQty(product.id, cartSimple.quantity - 1)}
+                  style={styles.simpleStepBtn}
+                >
+                  <Feather name="minus" size={15} color={BLUE} />
                 </Pressable>
                 <Text style={styles.simpleStepQty}>{cartSimple.quantity}</Text>
                 <Pressable
                   onPress={() => onUpdateSimpleQty(product.id, cartSimple.quantity + 1)}
                   style={styles.simpleStepBtn}
                 >
-                  <Feather name="plus" size={16} color={NAVY} />
+                  <Feather name="plus" size={15} color={BLUE} />
                 </Pressable>
               </View>
             ) : (
-              <Pressable
-                onPress={() => onAddSimple(product.id)}
-                style={styles.addToCartBtn}
-              >
-                <Feather name="plus" size={18} color="#FFFFFF" />
-                <Text style={styles.addToCartText}>Add To Cart</Text>
+              <Pressable onPress={handleAddSimple} style={styles.primaryButton}>
+                <Feather name="plus" size={14} color="#FFFFFF" />
+                <Text style={styles.primaryButtonText}>Add To Cart</Text>
               </Pressable>
             )}
           </View>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -438,122 +652,281 @@ export default function ProductCart({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: BORDER,
-    marginBottom: 18,
+    marginBottom: 12,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
   cardActive: {
     borderColor: '#BFDBFE',
   },
   imageShell: {
-    height: 210,
+    height: 176,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
   },
   image: {
-    width: 230,
-    height: 210,
+    width: '100%',
+    height: '100%',
   },
   imagePlaceholder: {
-    width: 230,
-    height: 210,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  placeholderText: {
-    color: '#94A3B8',
+    width: '100%',
+    height: '100%',
   },
   body: {
-    padding: 18,
+    padding: 12,
   },
-  titleRow: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 8,
   },
-  productCode: {
-    fontSize: 11,
-    letterSpacing: 2,
+  designText: {
+    fontSize: 9,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
     color: '#B45309',
-    marginBottom: 8,
+    marginBottom: 4,
+    fontWeight: '700',
   },
   title: {
-    fontSize: 18,
-    lineHeight: 27,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '800',
     color: BLUE,
+  },
+  metaText: {
+    marginTop: 3,
+    fontSize: 11,
+    color: '#64748B',
   },
   priceBlock: {
     alignItems: 'flex-end',
   },
   priceLabel: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#94A3B8',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   priceValue: {
-    fontSize: 22,
+    fontSize: 17,
     fontWeight: '900',
     color: BLUE,
   },
-  metaRow: {
+  pillWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
+    gap: 6,
+    marginTop: 10,
   },
-  metaChip: {
+  attrPill: {
     borderRadius: 999,
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  metaChipText: {
-    fontSize: 12,
-    color: '#64748B',
+  attrPillText: {
+    fontSize: 10,
+    color: '#475569',
+  },
+  infoBlock: {
+    marginTop: 12,
   },
   sectionLabel: {
-    marginTop: 18,
-    marginBottom: 10,
-    fontSize: 12,
+    marginBottom: 7,
+    fontSize: 10,
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 2,
+    letterSpacing: 1.2,
   },
   colorWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
-  activeColorPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+  colorPill: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: NAVY,
+    backgroundColor: BLUE,
   },
-  activeColorText: {
+  colorPillText: {
     color: '#FFFFFF',
     fontWeight: '700',
+    fontSize: 11,
   },
-  sizesWrap: {
+  garmentColorPill: {
+    borderRadius: 999,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  garmentColorPillActive: {
+    backgroundColor: BLUE,
+    borderColor: BLUE,
+  },
+  garmentColorText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  garmentColorTextActive: {
+    color: '#FFFFFF',
+  },
+  variantBlock: {
+    marginTop: 12,
+  },
+  variantHeader: {
+    marginBottom: 6,
+  },
+  variantTableHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  variantHeadText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  variantSizeCol: {
+    width: 50,
+  },
+  variantPriceCol: {
+    flex: 1,
+  },
+  variantQtyCol: {
+    width: 82,
+    textAlign: 'center',
+  },
+  variantActionCol: {
+    width: 54,
+  },
+  variantList: {
+    gap: 6,
+  },
+  variantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: '#F8FAFC',
+    padding: 6,
+  },
+  variantRowActive: {
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
+  },
+  variantSizeBadge: {
+    width: 50,
+    minHeight: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  variantSizeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: BLUE,
+  },
+  variantPriceText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  qtyInput: {
+    width: 82,
+    minHeight: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    textAlign: 'center',
+    fontSize: 13,
+    color: BLUE,
+  },
+  stepper: {
+    width: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  stepperBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperQty: {
+    minWidth: 16,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: BLUE,
+  },
+  removeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+  },
+  addBtn: {
+    width: 54,
+    minHeight: 34,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: BLUE,
+  },
+  addBtnText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  sizeWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 7,
   },
   sizePill: {
-    minWidth: 44,
-    height: 40,
-    borderRadius: 20,
+    minWidth: 38,
+    minHeight: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
@@ -561,194 +934,168 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
-  sizePillStatic: {
-    backgroundColor: '#FFFFFF',
-  },
-  sizePillSelected: {
-    backgroundColor: NAVY,
-    borderColor: NAVY,
-  },
-  sizePillDisabled: {
-    opacity: 0.35,
+  sizePillActive: {
+    backgroundColor: BLUE,
+    borderColor: BLUE,
   },
   sizePillText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
     color: '#334155',
   },
-  sizePillTextSelected: {
+  sizePillTextActive: {
     color: '#FFFFFF',
-  },
-  sizePillTextDisabled: {
-    color: '#94A3B8',
   },
   sizeCount: {
     position: 'absolute',
-    right: 2,
-    top: 1,
+    right: 3,
+    top: 2,
     fontSize: 9,
     color: GOLD,
     fontWeight: '800',
   },
-  pieceCard: {
-    marginTop: 18,
-    borderRadius: 24,
+  garmentCard: {
+    marginTop: 12,
+    borderRadius: 16,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 14,
+    padding: 10,
   },
-  pieceHeader: {
+  garmentCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 6,
   },
-  pieceHeading: {
-    fontSize: 14,
+  garmentCardTitle: {
+    fontSize: 12,
     fontWeight: '700',
     color: BLUE,
   },
-  pieceHint: {
-    fontSize: 12,
+  garmentCardHint: {
+    fontSize: 10,
     color: '#64748B',
   },
-  pieceGrid: {
+  garmentGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 10,
   },
-  pieceRow: {
+  garmentRow: {
     width: '47%',
-    minWidth: 135,
+    minWidth: 120,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 7,
   },
-  pieceSizeChip: {
-    minWidth: 52,
-    height: 38,
-    borderRadius: 14,
-    backgroundColor: NAVY,
+  garmentSizeChip: {
+    minWidth: 42,
+    minHeight: 34,
+    borderRadius: 10,
+    backgroundColor: BLUE,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 9,
   },
-  pieceSizeChipDisabled: {
-    backgroundColor: '#CBD5E1',
-  },
-  pieceSizeChipText: {
-    fontSize: 13,
+  garmentSizeChipText: {
+    fontSize: 11,
     fontWeight: '800',
     color: '#FFFFFF',
   },
-  pieceInput: {
+  garmentQtyInput: {
     flex: 1,
-    height: 42,
-    borderRadius: 10,
+    minHeight: 38,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    fontSize: 16,
+    paddingHorizontal: 10,
+    fontSize: 13,
     color: BLUE,
   },
-  pieceInputDisabled: {
-    backgroundColor: '#E2E8F0',
-    color: '#94A3B8',
-  },
-  pieceAddButton: {
-    marginTop: 16,
-  },
-  setCard: {
-    marginTop: 18,
+  garmentSetCard: {
+    marginTop: 12,
     borderWidth: 1,
     borderColor: '#FCD34D',
     borderStyle: 'dashed',
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: '#FFFBEB',
-    padding: 14,
+    padding: 10,
   },
-  setRow: {
+  garmentSetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
-  setHeading: {
-    fontSize: 14,
+  garmentSetTitle: {
+    fontSize: 12,
     fontWeight: '700',
     color: BLUE,
   },
-  setSubtitle: {
-    marginTop: 4,
-    fontSize: 12,
+  garmentSetSubtitle: {
+    marginTop: 2,
+    fontSize: 10,
     color: '#64748B',
   },
-  setInput: {
-    height: 48,
-    width: 96,
-    borderRadius: 10,
+  setQtyInput: {
+    height: 40,
+    width: 72,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    fontSize: 16,
+    paddingHorizontal: 10,
+    fontSize: 13,
     color: BLUE,
+    textAlign: 'center',
   },
   setButton: {
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#F59E0B',
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: GOLD,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  setButtonDisabled: {
-    opacity: 0.45,
+    gap: 6,
+    marginTop: 8,
   },
   setButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
   },
-  bottomActions: {
-    marginTop: 18,
-  },
-  addToCartBtn: {
-    height: 50,
-    borderRadius: 10,
-    backgroundColor: NAVY,
+  primaryButton: {
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: BLUE,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 7,
+    marginTop: 10,
   },
-  addToCartBtnDisabled: {
-    opacity: 0.45,
-  },
-  addToCartText: {
+  primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
   },
   simpleRow: {
-    marginTop: 16,
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
   },
   simplePrice: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '800',
     color: BLUE,
   },
-  simpleStock: {
-    marginTop: 4,
-    fontSize: 12,
+  simpleHint: {
+    marginTop: 2,
+    fontSize: 10,
     color: '#64748B',
   },
   simpleStepper: {

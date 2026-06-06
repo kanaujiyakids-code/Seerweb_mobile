@@ -37,28 +37,30 @@ interface RenderItemProps {
   onRemoveSimple: (productId: number) => void;
 }
 
-const MemoProductCard = memo(({
-  item,
-  cart,
-  onAddVariant,
-  onUpdateVariantQty,
-  onRemoveVariant,
-  onAddSimple,
-  onUpdateSimpleQty,
-  onRemoveSimple,
-}: RenderItemProps) => (
-  <ProductCart
-    product={item}
-    showSize={Number(item.business_type_id) === 2}
-    cart={cart}
-    onAddVariant={onAddVariant}
-    onUpdateVariantQty={onUpdateVariantQty}
-    onRemoveVariant={onRemoveVariant}
-    onAddSimple={onAddSimple}
-    onUpdateSimpleQty={onUpdateSimpleQty}
-    onRemoveSimple={onRemoveSimple}
-  />
-));
+const MemoProductCard = memo(
+  ({
+    item,
+    cart,
+    onAddVariant,
+    onUpdateVariantQty,
+    onRemoveVariant,
+    onAddSimple,
+    onUpdateSimpleQty,
+    onRemoveSimple,
+  }: RenderItemProps) => (
+    <ProductCart
+      product={item}
+      showSize={Number(item.business_type_id) === 2}
+      cart={cart}
+      onAddVariant={onAddVariant}
+      onUpdateVariantQty={onUpdateVariantQty}
+      onRemoveVariant={onRemoveVariant}
+      onAddSimple={onAddSimple}
+      onUpdateSimpleQty={onUpdateSimpleQty}
+      onRemoveSimple={onRemoveSimple}
+    />
+  )
+);
 MemoProductCard.displayName = 'MemoProductCard';
 
 export default function RetailerHome() {
@@ -148,10 +150,7 @@ export default function RetailerHome() {
     [removeFromCart]
   );
 
-  const totalCartItems = useMemo(
-    () => cart.reduce((s, c) => s + c.quantity, 0),
-    [cart]
-  );
+  const totalCartItems = useMemo(() => cart.reduce((s, c) => s + c.quantity, 0), [cart]);
 
   const cartTotalPrice = useMemo(
     () => cart.reduce((s, c) => s + c.price * c.quantity, 0).toLocaleString('en-IN'),
@@ -161,64 +160,70 @@ export default function RetailerHome() {
   useEffect(() => {
     const fetchUser = async () => {
       const userString = await AsyncStorage.getItem('user');
-      if (!userString) { navigation.replace('Login'); return; }
+      if (!userString) {
+        navigation.replace('Login');
+        return;
+      }
       const parsed = JSON.parse(userString);
-      if (parsed.role !== 'retailer') { navigation.replace('Login'); return; }
+      if (parsed.role !== 'retailer') {
+        navigation.replace('Login');
+        return;
+      }
     };
     fetchUser();
   }, [navigation]);
 
-  const fetchProducts = useCallback(async (dealerId: number) => {
-    if (!dealerId) return;
-    setLoading(true);
-    try {
-      const response = await fetch(`${apiUrl}/products?dealerid=${dealerId}`);
-      const data = await response.json();
+  const fetchProducts = useCallback(
+    async (dealerId: number) => {
+      if (!dealerId) return;
+      setLoading(true);
+      try {
+        const response = await fetch(`${apiUrl}/products?dealerid=${dealerId}`);
+        const data = await response.json();
 
-      const formatted: Product[] = (data.products || data).map((item: any) => {
-        let attrs: Record<string, string> = {};
-        if (item.attributes) {
-          attrs = typeof item.attributes === 'string'
-            ? JSON.parse(item.attributes)
-            : item.attributes;
+        const formatted: Product[] = (data.products || data).map((item: any) => {
+          let attrs: Record<string, string> = {};
+          if (item.attributes) {
+            attrs =
+              typeof item.attributes === 'string' ? JSON.parse(item.attributes) : item.attributes;
+          }
+          return {
+            id: Number(item.id),
+            name: item.name || '',
+            brand: item.brand || attrs.brand || '',
+            model: item.model || attrs.model || '',
+            price: Number(item.price),
+            stock: Number(item.stock),
+            description: item.description || '',
+            dealerid: Number(item.dealerid),
+            image: item.image || null,
+            attributes: attrs,
+            business_type_id: item.business_type_id ?? null,
+            variants: item.variants ?? [],
+          };
+        });
+
+        setProducts(formatted);
+        setFilteredProducts(formatted);
+
+        const validIds = new Set(formatted.map((p) => p.id));
+        const staleIds = cart
+          .filter((c) => !validIds.has(c.productId))
+          .map((c) => ({ productId: c.productId, variantId: c.variantId }));
+
+        if (staleIds.length > 0) {
+          setTimeout(() => {
+            staleIds.forEach(({ productId, variantId }) => removeFromCart(productId, variantId));
+          }, 0);
         }
-        return {
-          id: Number(item.id),
-          name: item.name || '',
-          brand: item.brand || attrs.brand || '',
-          model: item.model || attrs.model || '',
-          price: Number(item.price),
-          stock: Number(item.stock),
-          description: item.description || '',
-          dealerid: Number(item.dealerid),
-          image: item.image || null,
-          attributes: attrs,
-          business_type_id: item.business_type_id ?? null,
-          variants: item.variants ?? [],
-        };
-      });
-
-      setProducts(formatted);
-      setFilteredProducts(formatted);
-
-      const validIds = new Set(formatted.map((p) => p.id));
-      const staleIds = cart
-        .filter((c) => !validIds.has(c.productId))
-        .map((c) => ({ productId: c.productId, variantId: c.variantId }));
-
-      if (staleIds.length > 0) {
-        setTimeout(() => {
-          staleIds.forEach(({ productId, variantId }) =>
-            removeFromCart(productId, variantId)
-          );
-        }, 0);
+      } catch (err) {
+        console.error('Error fetching products:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('Error fetching products:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [cart, removeFromCart]);
+    },
+    [cart, removeFromCart]
+  );
 
   useEffect(() => {
     const boot = async () => {
@@ -230,45 +235,49 @@ export default function RetailerHome() {
       }
     };
     boot();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSearch = useCallback((query: string) => {
-    setSearch(query);
-    const q = query.toLowerCase();
-    setFilteredProducts(
-      products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.brand ?? '').toLowerCase().includes(q) ||
-          (p.model ?? '').toLowerCase().includes(q) ||
-          Object.values(p.attributes ?? {}).some((v) =>
-            String(v).toLowerCase().includes(q)
-          )
-      )
-    );
-  }, [products]);
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearch(query);
+      const q = query.toLowerCase();
+      setFilteredProducts(
+        products.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            (p.brand ?? '').toLowerCase().includes(q) ||
+            (p.model ?? '').toLowerCase().includes(q) ||
+            Object.values(p.attributes ?? {}).some((v) => String(v).toLowerCase().includes(q))
+        )
+      );
+    },
+    [products]
+  );
 
-  const renderItem = useCallback(({ item }: { item: Product }) => (
-    <MemoProductCard
-      item={item}
-      cart={cart}
-      onAddVariant={handleAddVariant}
-      onUpdateVariantQty={handleUpdateVariantQty}
-      onRemoveVariant={handleRemoveVariant}
-      onAddSimple={handleAddSimple}
-      onUpdateSimpleQty={handleUpdateSimpleQty}
-      onRemoveSimple={handleRemoveSimple}
-    />
-  ), [
-    cart,
-    handleAddVariant,
-    handleUpdateVariantQty,
-    handleRemoveVariant,
-    handleAddSimple,
-    handleUpdateSimpleQty,
-    handleRemoveSimple,
-  ]);
+  const renderItem = useCallback(
+    ({ item }: { item: Product }) => (
+      <MemoProductCard
+        item={item}
+        cart={cart}
+        onAddVariant={handleAddVariant}
+        onUpdateVariantQty={handleUpdateVariantQty}
+        onRemoveVariant={handleRemoveVariant}
+        onAddSimple={handleAddSimple}
+        onUpdateSimpleQty={handleUpdateSimpleQty}
+        onRemoveSimple={handleRemoveSimple}
+      />
+    ),
+    [
+      cart,
+      handleAddVariant,
+      handleUpdateVariantQty,
+      handleRemoveVariant,
+      handleAddSimple,
+      handleUpdateSimpleQty,
+      handleRemoveSimple,
+    ]
+  );
 
   const handleRefresh = useCallback(async () => {
     if (user?.dealer_id) await fetchProducts(user.dealer_id);
@@ -283,14 +292,9 @@ export default function RetailerHome() {
         visible={imageModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setImageModalVisible(false)}
-      >
+        onRequestClose={() => setImageModalVisible(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setImageModalVisible(false)}>
-          <Image
-            source={{ uri: modalImage! }}
-            style={styles.modalImage}
-            resizeMode="contain"
-          />
+          <Image source={{ uri: modalImage! }} style={styles.modalImage} resizeMode="contain" />
         </Pressable>
       </Modal>
 
@@ -298,8 +302,7 @@ export default function RetailerHome() {
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+          keyboardShouldPersistTaps="handled">
           <Text style={styles.pageTitle}>Browse Products</Text>
           <Text style={styles.pageSubtitle}>Add products to your cart for bulk ordering</Text>
 
@@ -365,20 +368,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 100,
   },
   pageTitle: {
-    fontSize: 22,
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#111827',
     marginBottom: 4,
   },
   pageSubtitle: {
-    fontSize: 13,
+    fontSize: 11,
     color: '#6B7280',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   cartStrip: {
     flexDirection: 'row',

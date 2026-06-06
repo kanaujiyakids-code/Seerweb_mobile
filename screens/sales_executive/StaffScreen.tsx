@@ -1,7 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import {
-  View, Text, ScrollView, TextInput, FlatList,
-  Pressable, ActivityIndicator, Linking, Platform
+  View,
+  Text,
+  ScrollView,
+  TextInput,
+  FlatList,
+  Pressable,
+  ActivityIndicator,
+  Linking,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BottomTabNavigator from 'components/BottomTabNavigator';
@@ -38,23 +45,30 @@ interface RenderItemProps {
   onRemoveSimple: (productId: number) => void;
 }
 
-const MemoProductCard = memo(({
-  item, cart,
-  onAddVariant, onUpdateVariantQty, onRemoveVariant,
-  onAddSimple, onUpdateSimpleQty, onRemoveSimple,
-}: RenderItemProps) => (
-  <ProductCart
-    product={item}
-    showSize={Number(item.business_type_id) === 2}
-    cart={cart}
-    onAddVariant={onAddVariant}
-    onUpdateVariantQty={onUpdateVariantQty}
-    onRemoveVariant={onRemoveVariant}
-    onAddSimple={onAddSimple}
-    onUpdateSimpleQty={onUpdateSimpleQty}
-    onRemoveSimple={onRemoveSimple}
-  />
-));
+const MemoProductCard = memo(
+  ({
+    item,
+    cart,
+    onAddVariant,
+    onUpdateVariantQty,
+    onRemoveVariant,
+    onAddSimple,
+    onUpdateSimpleQty,
+    onRemoveSimple,
+  }: RenderItemProps) => (
+    <ProductCart
+      product={item}
+      showSize={Number(item.business_type_id) === 2}
+      cart={cart}
+      onAddVariant={onAddVariant}
+      onUpdateVariantQty={onUpdateVariantQty}
+      onRemoveVariant={onRemoveVariant}
+      onAddSimple={onAddSimple}
+      onUpdateSimpleQty={onUpdateSimpleQty}
+      onRemoveSimple={onRemoveSimple}
+    />
+  )
+);
 MemoProductCard.displayName = 'MemoProductCard';
 
 /* -------------------- MAIN SCREEN -------------------- */
@@ -63,17 +77,17 @@ export default function StaffScreen() {
   const navigation = useNavigation();
   const { cart, addToCart, updateCartQuantity, removeFromCart } = useCart();
 
-  const [user, setUser]                           = useState<any>(null);
-  const [retailers, setRetailers]                 = useState<Retailer[]>([]);
+  const [user, setUser] = useState<any>(null);
+  const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [filteredRetailers, setFilteredRetailers] = useState<Retailer[]>([]);
-  const [selectedRetailer, setSelectedRetailer]   = useState<Retailer | null>(null);
-  const [products, setProducts]                   = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts]   = useState<Product[]>([]);
-  const [search, setSearch]                       = useState('');
-  const [loading, setLoading]                     = useState(true);
-  const [alertVisible, setAlertVisible]           = useState(false);
-  const [alertMsg, setAlertMsg]                   = useState('');
-  const [activeTab, setActiveTab]                 = useState<'customers' | 'products'>('customers');
+  const [selectedRetailer, setSelectedRetailer] = useState<Retailer | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertMsg, setAlertMsg] = useState('');
+  const [activeTab, setActiveTab] = useState<'customers' | 'products'>('customers');
 
   /* -------------------- ALERT -------------------- */
 
@@ -117,7 +131,13 @@ export default function StaffScreen() {
     (productId: number) => {
       const product = products.find((p) => p.id === productId);
       if (!product) return;
-      addToCart({ productId, variantId: 0, price: product.price, quantity: 1, stock: product.stock });
+      addToCart({
+        productId,
+        variantId: 0,
+        price: product.price,
+        quantity: 1,
+        stock: product.stock,
+      });
       // showAlert('Added to cart');
     },
     [products, addToCart, showAlert]
@@ -138,10 +158,7 @@ export default function StaffScreen() {
 
   /* -------------------- CART TOTALS -------------------- */
 
-  const totalCartItems = useMemo(
-    () => cart.reduce((s, c) => s + c.quantity, 0),
-    [cart]
-  );
+  const totalCartItems = useMemo(() => cart.reduce((s, c) => s + c.quantity, 0), [cart]);
 
   const cartTotalPrice = useMemo(
     () => cart.reduce((s, c) => s + c.price * c.quantity, 0).toLocaleString('en-IN'),
@@ -161,26 +178,35 @@ export default function StaffScreen() {
   const handleRetailerSearch = (query: string) => {
     if (!query.trim()) return setFilteredRetailers(retailers);
     const lower = query.toLowerCase();
-    setFilteredRetailers(retailers.filter(r =>
-      r.name.toLowerCase().includes(lower) ||
-      r.store_name.toLowerCase().includes(lower) ||
-      r.phone.includes(lower) ||
-      r.address.toLowerCase().includes(lower)
-    ));
-  };
-
-  const handleProductSearch = useCallback((query: string) => {
-    setSearch(query);
-    const q = query.toLowerCase();
-    setFilteredProducts(
-      !query.trim() ? products : products.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        (p.brand ?? '').toLowerCase().includes(q) ||
-        (p.model ?? '').toLowerCase().includes(q) ||
-        Object.values(p.attributes ?? {}).some(v => String(v).toLowerCase().includes(q))
+    setFilteredRetailers(
+      retailers.filter(
+        (r) =>
+          r.name.toLowerCase().includes(lower) ||
+          r.store_name.toLowerCase().includes(lower) ||
+          r.phone.includes(lower) ||
+          r.address.toLowerCase().includes(lower)
       )
     );
-  }, [products]);
+  };
+
+  const handleProductSearch = useCallback(
+    (query: string) => {
+      setSearch(query);
+      const q = query.toLowerCase();
+      setFilteredProducts(
+        !query.trim()
+          ? products
+          : products.filter(
+              (p) =>
+                p.name.toLowerCase().includes(q) ||
+                (p.brand ?? '').toLowerCase().includes(q) ||
+                (p.model ?? '').toLowerCase().includes(q) ||
+                Object.values(p.attributes ?? {}).some((v) => String(v).toLowerCase().includes(q))
+            )
+      );
+    },
+    [products]
+  );
 
   /* -------------------- FETCH DATA -------------------- */
 
@@ -194,11 +220,17 @@ export default function StaffScreen() {
           AsyncStorage.getItem('token'),
         ]);
         if (cancelled) return;
-        if (!userData || !token) { navigation.navigate('Login' as never); return; }
+        if (!userData || !token) {
+          navigation.navigate('Login' as never);
+          return;
+        }
 
         const userObj = JSON.parse(userData);
         setUser(userObj);
-        if (userObj.role !== 'staff') { navigation.navigate('Login' as never); return; }
+        if (userObj.role !== 'staff') {
+          navigation.navigate('Login' as never);
+          return;
+        }
 
         const [retData, prodData] = await Promise.all([
           cachedGet(`/staff/get_retailers_by_executive?executiveid=${userObj.id}`, token),
@@ -212,28 +244,27 @@ export default function StaffScreen() {
         const formatted: Product[] = (prodData || []).map((item: any) => {
           let attrs: Record<string, string> = {};
           if (item.attributes) {
-            attrs = typeof item.attributes === 'string'
-              ? JSON.parse(item.attributes) : item.attributes;
+            attrs =
+              typeof item.attributes === 'string' ? JSON.parse(item.attributes) : item.attributes;
           }
           return {
-            id:               Number(item.id),
-            name:             item.name || '',
-            brand:            item.brand || attrs.brand || '',
-            model:            item.model || attrs.model || '',
-            price:            Number(item.price),
-            stock:            Number(item.stock),
-            description:      item.description || '',
-            dealerid:         Number(item.dealerid),
-            image:            item.image || null,
-            attributes:       attrs,
+            id: Number(item.id),
+            name: item.name || '',
+            brand: item.brand || attrs.brand || '',
+            model: item.model || attrs.model || '',
+            price: Number(item.price),
+            stock: Number(item.stock),
+            description: item.description || '',
+            dealerid: Number(item.dealerid),
+            image: item.image || null,
+            attributes: attrs,
             business_type_id: item.business_type_id ?? null,
-            variants:         item.variants ?? [],
+            variants: item.variants ?? [],
           };
         });
 
         setProducts(formatted);
         setFilteredProducts(formatted);
-
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {
@@ -241,24 +272,36 @@ export default function StaffScreen() {
       }
     };
     fetchData();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [navigation]);
 
   /* -------------------- RENDER ITEM -------------------- */
 
-  const renderItem = useCallback(({ item }: { item: Product }) => (
-    <MemoProductCard
-      item={item}
-      cart={cart}
-      onAddVariant={handleAddVariant}
-      onUpdateVariantQty={handleUpdateVariantQty}
-      onRemoveVariant={handleRemoveVariant}
-      onAddSimple={handleAddSimple}
-      onUpdateSimpleQty={handleUpdateSimpleQty}
-      onRemoveSimple={handleRemoveSimple}
-    />
-  ), [cart, handleAddVariant, handleUpdateVariantQty, handleRemoveVariant,
-      handleAddSimple, handleUpdateSimpleQty, handleRemoveSimple]);
+  const renderItem = useCallback(
+    ({ item }: { item: Product }) => (
+      <MemoProductCard
+        item={item}
+        cart={cart}
+        onAddVariant={handleAddVariant}
+        onUpdateVariantQty={handleUpdateVariantQty}
+        onRemoveVariant={handleRemoveVariant}
+        onAddSimple={handleAddSimple}
+        onUpdateSimpleQty={handleUpdateSimpleQty}
+        onRemoveSimple={handleRemoveSimple}
+      />
+    ),
+    [
+      cart,
+      handleAddVariant,
+      handleUpdateVariantQty,
+      handleRemoveVariant,
+      handleAddSimple,
+      handleUpdateSimpleQty,
+      handleRemoveSimple,
+    ]
+  );
 
   /* -------------------- MAIN RETURN -------------------- */
 
@@ -267,23 +310,31 @@ export default function StaffScreen() {
       <Navbar user={user?.name} />
 
       {/* ---------- TOP TABS ---------- */}
-      <View style={{
-        backgroundColor: '#fff', padding: 12, margin: 12,
-        borderRadius: 12, elevation: 3,
-        shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4,
-        flexDirection: 'row',
-      }}>
+      <View
+        style={{
+          backgroundColor: '#fff',
+          padding: 8,
+          marginHorizontal: 12,
+          marginVertical: 8,
+          borderRadius: 10,
+          elevation: 2,
+          shadowColor: '#000',
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          flexDirection: 'row',
+        }}>
         {(['customers', 'products'] as const).map((tab) => (
           <Pressable
             key={tab}
             onPress={() => setActiveTab(tab)}
             style={{
               backgroundColor: activeTab === tab ? '#e5e7eb' : 'transparent',
-              paddingVertical: 8, paddingHorizontal: 14,
-              borderRadius: 10, marginRight: tab === 'customers' ? 8 : 0,
-            }}
-          >
-            <Text style={{ fontWeight: '600', textTransform: 'capitalize' }}>
+              paddingVertical: 7,
+              paddingHorizontal: 12,
+              borderRadius: 8,
+              marginRight: tab === 'customers' ? 6 : 0,
+            }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', textTransform: 'capitalize' }}>
               {tab === 'customers' ? 'Customers' : 'Create Order'}
             </Text>
           </Pressable>
@@ -292,17 +343,20 @@ export default function StaffScreen() {
 
       {/* ---------- CUSTOMERS TAB ---------- */}
       {activeTab === 'customers' && (
-        <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}
+        <ScrollView
+          style={{ flex: 1, paddingHorizontal: 12 }}
           contentContainerStyle={{ paddingBottom: 100 }}>
-          <Text style={{ fontSize: 22, fontWeight: '500', marginBottom: 8 }}>
-            Select Customer
-          </Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 6 }}>Select Customer</Text>
 
           <TextInput
             placeholder="Search customers..."
             style={{
-              borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 10,
-              paddingHorizontal: 14, height: 42, backgroundColor: '#fff',
+              borderWidth: 0.5,
+              borderColor: '#D1D5DB',
+              borderRadius: 10,
+              paddingHorizontal: 14,
+              height: 42,
+              backgroundColor: '#fff',
               marginBottom: 12,
             }}
             onChangeText={handleRetailerSearch}
@@ -316,19 +370,22 @@ export default function StaffScreen() {
               <Pressable
                 onPress={() => handleSelectRetailer(item)}
                 style={{
-                  backgroundColor: '#fff', padding: 14, marginBottom: 10,
-                  borderRadius: 12, elevation: 2,
+                  backgroundColor: '#fff',
+                  padding: 14,
+                  marginBottom: 10,
+                  borderRadius: 12,
+                  elevation: 2,
                   borderWidth: selectedRetailer?.id === item.id ? 2 : 0.5,
                   borderColor: selectedRetailer?.id === item.id ? '#3b82f6' : '#E5E7EB',
-                }}
-              >
+                }}>
                 <View style={{ flexDirection: 'row' }}>
                   <View style={{ flex: 1, paddingRight: 12 }}>
                     <Text style={{ fontWeight: '600', fontSize: 15 }}>{item.store_name}</Text>
                     <Text style={{ color: '#6B7280', marginTop: 2 }}>
                       {item.name} · {item.phone}
                     </Text>
-                    <Text style={{ color: '#9CA3AF', marginTop: 2, fontSize: 12 }}
+                    <Text
+                      style={{ color: '#9CA3AF', marginTop: 2, fontSize: 12 }}
                       numberOfLines={2}>
                       {item.address}
                     </Text>
@@ -336,14 +393,17 @@ export default function StaffScreen() {
 
                   <View style={{ justifyContent: 'center', alignItems: 'center', gap: 8 }}>
                     <Pressable
-                      onPress={() => item.phone
-                        ? Linking.openURL(`tel:${item.phone}`)
-                        : showAlert('Phone not available')}
+                      onPress={() =>
+                        item.phone
+                          ? Linking.openURL(`tel:${item.phone}`)
+                          : showAlert('Phone not available')
+                      }
                       style={{
-                        backgroundColor: '#3b82f6', padding: 8,
-                        borderRadius: 50, marginBottom: 6,
-                      }}
-                    >
+                        backgroundColor: '#3b82f6',
+                        padding: 8,
+                        borderRadius: 50,
+                        marginBottom: 6,
+                      }}>
                       <Ionicons name="call" size={18} color="white" />
                     </Pressable>
                     <Pressable
@@ -355,8 +415,7 @@ export default function StaffScreen() {
                         });
                         if (url) Linking.openURL(url);
                       }}
-                      style={{ backgroundColor: '#10b981', padding: 8, borderRadius: 50 }}
-                    >
+                      style={{ backgroundColor: '#10b981', padding: 8, borderRadius: 50 }}>
                       <Ionicons name="location" size={18} color="white" />
                     </Pressable>
                   </View>
@@ -369,16 +428,22 @@ export default function StaffScreen() {
 
       {/* ---------- PRODUCTS TAB ---------- */}
       {activeTab === 'products' && (
-        <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}
+        <ScrollView
+          style={{ flex: 1, paddingHorizontal: 12 }}
           contentContainerStyle={{ paddingBottom: 100 }}>
-
           {/* Selected customer banner / warning */}
           {selectedRetailer ? (
-            <View style={{
-              backgroundColor: '#EFF6FF', borderRadius: 10,
-              padding: 10, marginBottom: 12, flexDirection: 'row',
-              alignItems: 'center', borderWidth: 0.5, borderColor: '#BFDBFE',
-            }}>
+            <View
+              style={{
+                backgroundColor: '#EFF6FF',
+                borderRadius: 10,
+                padding: 10,
+                marginBottom: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderWidth: 0.5,
+                borderColor: '#BFDBFE',
+              }}>
               <Ionicons name="storefront-outline" size={18} color="#3b82f6" />
               <Text style={{ marginLeft: 8, color: '#1D4ED8', fontWeight: '500', flex: 1 }}>
                 {selectedRetailer.store_name}
@@ -388,35 +453,50 @@ export default function StaffScreen() {
               </Pressable>
             </View>
           ) : (
-            <View style={{
-              backgroundColor: '#FFFBEB', borderRadius: 10,
-              padding: 10, marginBottom: 12, flexDirection: 'row',
-              alignItems: 'center', borderWidth: 0.5, borderColor: '#FCD34D',
-            }}>
+            <View
+              style={{
+                backgroundColor: '#FFFBEB',
+                borderRadius: 10,
+                padding: 10,
+                marginBottom: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderWidth: 0.5,
+                borderColor: '#FCD34D',
+              }}>
               <Ionicons name="warning-outline" size={18} color="#D97706" />
               <Text style={{ marginLeft: 8, color: '#92400E', flex: 1, fontSize: 13 }}>
                 Please select a customer first
               </Text>
               <Pressable onPress={() => setActiveTab('customers')}>
-                <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '600' }}>
-                  Go →
-                </Text>
+                <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '600' }}>Go →</Text>
               </Pressable>
             </View>
           )}
 
           {/* Cart summary strip */}
           {totalCartItems > 0 && (
-            <View style={{
-              flexDirection: 'row', alignItems: 'center',
-              backgroundColor: '#EFF6FF', borderRadius: 10,
-              padding: 10, marginBottom: 12,
-              borderWidth: 0.5, borderColor: '#BFDBFE', gap: 8,
-            }}>
-              <View style={{
-                width: 22, height: 22, borderRadius: 11,
-                backgroundColor: '#185FA5', alignItems: 'center', justifyContent: 'center',
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#EFF6FF',
+                borderRadius: 10,
+                padding: 10,
+                marginBottom: 12,
+                borderWidth: 0.5,
+                borderColor: '#BFDBFE',
+                gap: 8,
               }}>
+              <View
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 11,
+                  backgroundColor: '#185FA5',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
                 <Text style={{ fontSize: 11, color: '#fff', fontWeight: '500' }}>
                   {totalCartItems}
                 </Text>
@@ -436,9 +516,15 @@ export default function StaffScreen() {
             value={search}
             onChangeText={handleProductSearch}
             style={{
-              borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 10,
-              paddingHorizontal: 14, height: 42, backgroundColor: '#fff',
-              marginBottom: 14, fontSize: 14, color: '#111827',
+              borderWidth: 0.5,
+              borderColor: '#D1D5DB',
+              borderRadius: 10,
+              paddingHorizontal: 14,
+              height: 42,
+              backgroundColor: '#fff',
+              marginBottom: 14,
+              fontSize: 14,
+              color: '#111827',
             }}
             placeholderTextColor="#9CA3AF"
           />
